@@ -1,0 +1,755 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Markwood Batch Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Zilla+Slab:wght@600;700&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<style>
+:root{
+  --bg:#F6F4EF; --card:#FFFFFF; --ink:#2A241B; --muted:#7A7264; --line:#E4DFD3;
+  --accent:#3E5C42; --accent-ink:#FFFFFF; --danger:#B5402E;
+  --st-incubating:#C9C2B4; --st-fruiting:#4D8FD1; --st-complete:#5E9E54;
+  --st-contaminated:#C2503C; --st-failed:#D98E3A; --st-culled:#6E665A;
+  --radius:10px; --shadow:0 1px 3px rgba(42,36,27,.08);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-text-size-adjust:100%}
+body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink);font-size:15px;line-height:1.45}
+h1,h2,h3{font-family:"Zilla Slab",serif;font-weight:700}
+.mono{font-family:"IBM Plex Mono",monospace;font-weight:500}
+button{font:inherit;cursor:pointer;border:none;background:none;color:inherit}
+input,select,textarea{font:inherit;color:inherit;width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:#fff}
+input:focus,select:focus,textarea:focus,button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+label{display:block;font-size:13px;font-weight:600;color:var(--muted);margin:14px 0 5px}
+a{color:var(--accent)}
+
+/* header */
+header{background:var(--card);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:50}
+.hdr-top{display:flex;align-items:center;gap:10px;padding:12px 16px;max-width:1200px;margin:0 auto}
+.logo{width:26px;height:26px;flex:none}
+.hdr-top h1{font-size:20px;letter-spacing:.2px;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sync{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);flex:none}
+.sync .dot{width:8px;height:8px;border-radius:50%;background:#A9A294}
+.sync.ok .dot{background:var(--st-complete)} .sync.bad .dot{background:var(--st-contaminated)}
+nav{display:flex;gap:4px;padding:0 12px 0;max-width:1200px;margin:0 auto;overflow-x:auto}
+nav button{padding:9px 14px;font-weight:600;font-size:14px;color:var(--muted);border-bottom:3px solid transparent;white-space:nowrap}
+nav button.active{color:var(--ink);border-bottom-color:var(--accent)}
+
+main{max-width:1200px;margin:0 auto;padding:16px}
+.view{display:none}.view.active{display:block}
+
+/* buttons */
+.btn{display:inline-flex;align-items:center;gap:7px;padding:10px 16px;border-radius:8px;font-weight:600;font-size:14px;border:1px solid var(--line);background:var(--card);box-shadow:var(--shadow)}
+.btn:active{transform:translateY(1px)}
+.btn-primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.btn-danger{color:var(--danger);border-color:#E5C5BE}
+.btn-sm{padding:7px 11px;font-size:13px}
+.toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:16px}
+.toolbar .spacer{flex:1}
+.search{max-width:340px}
+
+/* pipeline */
+.pipeline{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;align-items:start}
+.col{background:rgba(255,255,255,.45);border:1.5px dashed var(--line);border-radius:var(--radius);padding:10px;min-height:120px}
+.col-head{display:flex;align-items:baseline;justify-content:space-between;padding:4px 6px 10px}
+.col-head h2{font-size:16px;text-transform:uppercase;letter-spacing:.6px}
+.col-head .count{font-size:13px;color:var(--muted)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:14px;margin-bottom:10px;cursor:pointer}
+.card:hover{border-color:#C8C1B0}
+.card .co{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+.card h3{font-size:16px;margin:2px 0 1px}
+.card .species{font-size:13px;color:var(--muted);margin-bottom:8px}
+.card .stats{display:flex;gap:14px;font-size:13px;margin-top:8px;flex-wrap:wrap}
+.card .stats b{font-weight:600}
+.bno{color:var(--muted);font-size:13px}
+
+/* block grid */
+.bgrid{display:flex;flex-wrap:wrap;gap:3px}
+.bgrid .sq{width:13px;height:13px;border-radius:3px}
+.bgrid.big .sq{width:22px;height:22px;border-radius:5px}
+.legend{display:flex;flex-wrap:wrap;gap:12px;font-size:13px;color:var(--muted);margin-top:10px}
+.legend span{display:inline-flex;align-items:center;gap:5px}
+.legend .sq{width:11px;height:11px;border-radius:3px;display:inline-block}
+.sq.incubating{background:var(--st-incubating)} .sq.fruiting{background:var(--st-fruiting)}
+.sq.complete{background:var(--st-complete)} .sq.contaminated{background:var(--st-contaminated)}
+.sq.failed{background:var(--st-failed)} .sq.culled{background:var(--st-culled)}
+
+/* batch detail */
+.detail-head{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:14px}
+.detail-head h2{font-size:24px;flex:1;min-width:200px}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:16px;margin-bottom:14px}
+.panel h3{font-size:15px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:12px}
+.info-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px}
+.info-grid .k{font-size:12px;color:var(--muted);font-weight:600}
+.info-grid .v{font-size:15px}
+.statline{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px;margin-bottom:14px}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:12px;text-align:center}
+.stat .n{font-family:"Zilla Slab",serif;font-weight:700;font-size:22px}
+.stat .l{font-size:12px;color:var(--muted)}
+.log{list-style:none}
+.log li{display:flex;gap:12px;padding:10px 0;border-bottom:1px solid var(--line);font-size:14px}
+.log li:last-child{border-bottom:none}
+.log .d{flex:none;width:86px;color:var(--muted)}
+.log .tag{flex:none;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;padding:2px 7px;border-radius:5px;height:fit-content}
+.tag.mv{background:#EEF3FA;color:#2F6BAB} .tag.hv{background:#ECF4EA;color:#3F7A38}
+.log .del{margin-left:auto;color:var(--muted);font-size:12px}
+.log .del:hover{color:var(--danger)}
+
+/* tables */
+.tablewrap{overflow-x:auto;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow)}
+table{border-collapse:collapse;width:100%;font-size:14px;min-width:760px}
+th,td{padding:10px 12px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
+th:first-child,td:first-child{text-align:left}
+th{font-size:12px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);background:#FBFAF6}
+tr:last-child td{border-bottom:none}
+td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font-weight:700}
+.costs-table input{width:90px;padding:7px 8px;text-align:right}
+.costs-table td{white-space:nowrap}
+
+/* forms & modals */
+.formwrap{max-width:640px;margin:0 auto}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.modal-bg{position:fixed;inset:0;background:rgba(42,36,27,.45);display:none;align-items:flex-end;justify-content:center;z-index:100;padding:0}
+.modal-bg.open{display:flex}
+.modal{background:var(--card);border-radius:14px 14px 0 0;padding:20px;width:100%;max-width:480px;max-height:88vh;overflow-y:auto}
+.modal h3{font-size:18px;margin-bottom:4px}
+.modal .sub{font-size:13px;color:var(--muted)}
+.modal .actions{display:flex;gap:10px;margin-top:20px}
+.modal .actions .btn{flex:1;justify-content:center}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.chip{font-size:13px;padding:6px 11px;border:1px solid var(--line);border-radius:99px;background:#FBFAF6}
+.chip:active{background:var(--bg)}
+@media(min-width:560px){.modal-bg{align-items:center;padding:20px}.modal{border-radius:14px}}
+
+/* QR sheet */
+.qr-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:14px}
+.qr-card{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:14px;text-align:center}
+.qr-card .qrbox{display:flex;justify-content:center;margin-bottom:8px}
+.qr-card .nm{font-weight:700;font-size:14px}
+.qr-card .sp{font-size:12px;color:var(--muted)}
+.empty{border:1.5px dashed var(--line);border-radius:var(--radius);padding:40px 20px;text-align:center;color:var(--muted)}
+.note-banner{background:#FBF6E8;border:1px solid #EADFBE;border-radius:8px;padding:10px 14px;font-size:13px;color:#6E5E2E;margin-bottom:14px}
+
+@media(max-width:860px){.pipeline{grid-template-columns:1fr}}
+@media print{
+  header,.toolbar,.no-print{display:none!important}
+  body{background:#fff}
+  .qr-grid{grid-template-columns:repeat(3,1fr)}
+  .qr-card{border:1px solid #ccc;break-inside:avoid}
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="hdr-top">
+    <svg class="logo" viewBox="0 0 24 24" fill="none"><path d="M12 3C7 3 3 6.6 3 10.5c0 .8.7 1.5 1.5 1.5h15c.8 0 1.5-.7 1.5-1.5C21 6.6 17 3 12 3Z" fill="#3E5C42"/><path d="M9.5 12.5 9 19a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2l-.5-6.5h-5Z" fill="#C9C2B4"/></svg>
+    <h1>Markwood Batch Tracker</h1>
+    <div class="sync" id="sync"><span class="dot"></span><span id="syncText">Loading…</span></div>
+  </div>
+  <nav>
+    <button data-view="pipeline" class="active">Pipeline</button>
+    <button data-view="analytics">Analytics</button>
+    <button data-view="costs">Costs</button>
+    <button data-view="qr">QR sheet</button>
+    <button data-view="archive">Archive</button>
+  </nav>
+</header>
+
+<main>
+
+<!-- PIPELINE -->
+<section class="view active" id="view-pipeline">
+  <div class="toolbar">
+    <button class="btn btn-primary" onclick="openForm()">＋ New batch</button>
+    <input class="search" id="search" placeholder="Search name, species, substrate, spawn code…" oninput="renderPipeline()">
+    <div class="spacer"></div>
+    <button class="btn btn-sm" onclick="exportCSV()">⬇ Export CSV</button>
+  </div>
+  <div class="pipeline" id="pipeline"></div>
+</section>
+
+<!-- BATCH DETAIL -->
+<section class="view" id="view-batch"></section>
+
+<!-- NEW / EDIT FORM -->
+<section class="view" id="view-form">
+  <div class="formwrap">
+    <h2 id="formTitle" style="font-size:24px;margin-bottom:6px">New batch</h2>
+    <input type="hidden" id="f_id">
+    <div class="row2">
+      <div><label>Batch number</label><input type="number" id="f_no" min="1"></div>
+      <div><label>Inoculation date</label><input type="date" id="f_date"></div>
+    </div>
+    <label>Batch name *</label><input id="f_name" placeholder="e.g. Golden Enoki">
+    <div class="row2">
+      <div><label>Common name (species) *</label><input id="f_species" list="speciesList" placeholder="e.g. Golden Enoki"></div>
+      <div><label>Scientific name</label><input id="f_sci" placeholder="e.g. Flammulina velutipes"></div>
+    </div>
+    <datalist id="speciesList"></datalist>
+    <div class="row2">
+      <div><label>Substrate</label><input id="f_substrate" list="subList" placeholder="e.g. Master's mix"></div>
+      <div><label>Method</label><input id="f_method" placeholder="e.g. Bags"></div>
+    </div>
+    <datalist id="subList"></datalist>
+    <div class="row2">
+      <div><label>Spawn code</label><input id="f_spawn" placeholder="e.g. FV6924SO31"></div>
+      <div><label>Block count *</label><input type="number" id="f_blocks" min="1" placeholder="e.g. 40"></div>
+    </div>
+    <label>Notes</label><textarea id="f_notes" rows="3" placeholder="Tech, lot details, anything…"></textarea>
+    <div style="display:flex;gap:10px;margin-top:20px">
+      <button class="btn btn-primary" style="flex:1;justify-content:center" onclick="saveBatch()">Save batch</button>
+      <button class="btn" onclick="cancelForm()">Cancel</button>
+    </div>
+  </div>
+</section>
+
+<!-- ANALYTICS -->
+<section class="view" id="view-analytics">
+  <div class="toolbar"><h2 style="font-size:22px">Species performance</h2><div class="spacer"></div></div>
+  <div class="note-banner">All-time figures across every batch (archived included). Cost/kg = (blocks inoculated × cost per block) ÷ total yield — so contaminated and failed blocks are counted as cost, which is the honest number for pricing.</div>
+  <div id="analyticsWrap"></div>
+</section>
+
+<!-- COSTS -->
+<section class="view" id="view-costs">
+  <div class="toolbar"><h2 style="font-size:22px">Cost per block & pricing</h2></div>
+  <div class="note-banner">Enter what one block costs you, per species. These feed the Analytics cost/kg and margin columns. Edit any time — e.g. when substrate or power costs change.</div>
+  <div id="costsWrap"></div>
+</section>
+
+<!-- QR SHEET -->
+<section class="view" id="view-qr">
+  <div class="toolbar">
+    <h2 style="font-size:22px">Batch QR codes</h2>
+    <div class="spacer"></div>
+    <button class="btn no-print" onclick="window.print()">🖨 Print sheet</button>
+  </div>
+  <div class="note-banner no-print">Each code is a link straight to that batch. Print, cut, stick on the shelf tag or batch paperwork. Any phone camera opens it — no app needed.</div>
+  <div class="qr-grid" id="qrGrid"></div>
+</section>
+
+<!-- ARCHIVE -->
+<section class="view" id="view-archive">
+  <div class="toolbar"><h2 style="font-size:22px">Archived batches</h2></div>
+  <div id="archiveWrap"></div>
+</section>
+
+</main>
+
+<!-- MOVE BLOCKS MODAL -->
+<div class="modal-bg" id="moveModal">
+  <div class="modal">
+    <h3>Move blocks</h3>
+    <div class="sub" id="mv_sub"></div>
+    <div class="row2">
+      <div><label>From</label><select id="mv_from" onchange="moveFromChanged()"></select></div>
+      <div><label>To</label><select id="mv_to"></select></div>
+    </div>
+    <div class="row2">
+      <div><label>How many</label><input type="number" id="mv_count" min="1"></div>
+      <div><label>Date</label><input type="date" id="mv_date"></div>
+    </div>
+    <label>Note (optional)</label><input id="mv_note" placeholder="e.g. trich on 3 bags, moved rest early">
+    <div class="actions">
+      <button class="btn btn-primary" onclick="saveMove()">Save</button>
+      <button class="btn" onclick="closeModal('moveModal')">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- HARVEST MODAL -->
+<div class="modal-bg" id="harvestModal">
+  <div class="modal">
+    <h3>Log harvest</h3>
+    <div class="sub" id="hv_sub"></div>
+    <div class="row2">
+      <div><label>Weight (g)</label><input type="number" id="hv_weight" min="1" inputmode="numeric" placeholder="e.g. 1850"></div>
+      <div><label>Flush</label><input type="number" id="hv_flush" min="1"></div>
+    </div>
+    <label>Date</label><input type="date" id="hv_date">
+    <label>Note (optional)</label><input id="hv_note" placeholder="e.g. great caps">
+    <div class="chips">
+      <button class="chip" onclick="addChip('Perfect harvest')">Perfect harvest</button>
+      <button class="chip" onclick="addChip('Great caps')">Great caps</button>
+      <button class="chip" onclick="addChip('Trimmed')">Trimmed</button>
+      <button class="chip" onclick="addChip('Small fruits')">Small fruits</button>
+      <button class="chip" onclick="addChip('Some aborts')">Some aborts</button>
+    </div>
+    <div class="actions">
+      <button class="btn btn-primary" onclick="saveHarvest()">Save harvest</button>
+      <button class="btn" onclick="closeModal('harvestModal')">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- QR MODAL -->
+<div class="modal-bg" id="qrModal">
+  <div class="modal" style="text-align:center">
+    <h3 id="qr_title">QR code</h3>
+    <div class="sub" id="qr_sub" style="margin-bottom:14px"></div>
+    <div class="qrbox" id="qr_box" style="display:flex;justify-content:center"></div>
+    <div class="sub" style="margin-top:10px;word-break:break-all" id="qr_url"></div>
+    <div class="actions"><button class="btn" onclick="closeModal('qrModal')">Close</button></div>
+  </div>
+</div>
+
+<script>
+/* ================= CONFIG ================= */
+const SUPABASE_URL = "https://jckfsvjodrrauwvpecks.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impja2ZzdmpvZHJyYXV3dnBlY2tzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5ODk4NTgsImV4cCI6MjA5NjU2NTg1OH0.ECtXTPKstyRW3Q_au5oucobZ1Axw44SDZXz368wNi4g";
+const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+const STATES = {
+  incubating:  {label:"Incubating",      color:"var(--st-incubating)"},
+  fruiting:    {label:"Fruiting",        color:"var(--st-fruiting)"},
+  complete:    {label:"Complete",        color:"var(--st-complete)"},
+  contaminated:{label:"Contaminated",    color:"var(--st-contaminated)"},
+  failed:      {label:"Didn't colonise", color:"var(--st-failed)"},
+  culled:      {label:"Culled / backlog",color:"var(--st-culled)"}
+};
+const STATE_ORDER = ["incubating","fruiting","complete","contaminated","failed","culled"];
+
+let batches=[], movements=[], harvests=[], costs=[];
+let currentBatchId=null, editingId=null;
+
+/* ================= HELPERS ================= */
+const $ = id => document.getElementById(id);
+const esc = s => (s??"").toString().replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const todayISO = () => new Date().toISOString().slice(0,10);
+const fmtDate = iso => { if(!iso) return "—"; const d=new Date(iso+"T00:00:00"); return d.toLocaleDateString("en-AU",{day:"2-digit",month:"2-digit",year:"2-digit"}); };
+const daysBetween = (a,b)=> Math.round((new Date(b)-new Date(a))/86400000);
+const fmtWeight = g => g>=1000 ? (g/1000).toFixed(g>=10000?1:2)+" kg" : Math.round(g)+" g";
+const money = n => "$"+(Math.round(n*100)/100).toFixed(2);
+
+function setSync(state,text){ const el=$("sync"); el.className="sync "+state; $("syncText").textContent=text; }
+
+function batchCounts(b){
+  const c={incubating:b.blocks_total,fruiting:0,complete:0,contaminated:0,failed:0,culled:0};
+  for(const m of movements){ if(m.batch_id!==b.id) continue;
+    if(c[m.from_state]!=null) c[m.from_state]-=m.count;
+    if(c[m.to_state]!=null) c[m.to_state]+=m.count;
+  }
+  return c;
+}
+const batchYield = b => harvests.filter(h=>h.batch_id===b.id).reduce((s,h)=>s+Number(h.weight_g),0);
+const batchHarvestCount = b => harvests.filter(h=>h.batch_id===b.id).length;
+function batchColumn(b){ const c=batchCounts(b); if(c.fruiting>0) return "fruiting"; if(c.incubating>0) return "incubating"; return "complete"; }
+function firstMoveTo(b,state){ const ms=movements.filter(m=>m.batch_id===b.id&&m.to_state===state).sort((a,x)=>a.move_date<x.move_date?-1:1); return ms[0]?.move_date||null; }
+function costPerBlock(species){ const c=costs.find(x=>x.species.toLowerCase()===species.toLowerCase()); if(!c) return null; return Number(c.substrate_cost)+Number(c.spawn_cost)+Number(c.bag_cost)+Number(c.other_cost); }
+function salePrice(species){ const c=costs.find(x=>x.species.toLowerCase()===species.toLowerCase()); return c?.sale_price_kg?Number(c.sale_price_kg):null; }
+
+/* ================= DATA ================= */
+function cache(){ try{ localStorage.setItem("mn_cache", JSON.stringify({batches,movements,harvests,costs})); }catch(e){} }
+function loadCache(){ try{ const d=JSON.parse(localStorage.getItem("mn_cache")); if(d){batches=d.batches||[];movements=d.movements||[];harvests=d.harvests||[];costs=d.costs||[];} }catch(e){} }
+
+async function loadAll(){
+  setSync("","Syncing…");
+  try{
+    const [b,m,h,c] = await Promise.all([
+      db.from("mn_batches").select("*").order("batch_no",{ascending:false}),
+      db.from("mn_movements").select("*"),
+      db.from("mn_harvests").select("*"),
+      db.from("mn_costs").select("*")
+    ]);
+    if(b.error||m.error||h.error||c.error) throw (b.error||m.error||h.error||c.error);
+    batches=b.data; movements=m.data; harvests=h.data; costs=c.data;
+    cache(); setSync("ok","Synced");
+  }catch(e){
+    console.error(e); loadCache();
+    setSync("bad","Offline — cached data");
+  }
+  renderAll();
+}
+
+async function write(action, errMsg){
+  setSync("","Saving…");
+  const {error} = await action;
+  if(error){ console.error(error); setSync("bad","Save failed"); alert(errMsg+"\n\n"+error.message); return false; }
+  await loadAll(); return true;
+}
+
+/* ================= ROUTING ================= */
+function showView(name, push=true){
+  document.querySelectorAll(".view").forEach(v=>v.classList.remove("active"));
+  $("view-"+name).classList.add("active");
+  document.querySelectorAll("nav button").forEach(b=>b.classList.toggle("active", b.dataset.view===name));
+  if(push){ const url = name==="batch"&&currentBatchId ? "?batch="+(batches.find(b=>b.id===currentBatchId)?.batch_no??"") : location.pathname; history.pushState({},"",url); }
+  window.scrollTo(0,0);
+}
+document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>{ if(b.dataset.view==="qr") renderQRSheet(); showView(b.dataset.view); });
+window.addEventListener("popstate", ()=>{ routeFromURL(false); });
+function routeFromURL(push){
+  const p = new URLSearchParams(location.search).get("batch");
+  if(p){ const b = batches.find(x=>String(x.batch_no)===String(p)) || batches.find(x=>x.id===p);
+    if(b){ openBatch(b.id, push); return; } }
+  showView("pipeline", push);
+}
+
+/* ================= RENDER: PIPELINE ================= */
+function miniGrid(b, big=false){
+  const c=batchCounts(b); let sq="";
+  for(const st of STATE_ORDER){ for(let i=0;i<Math.max(0,c[st]);i++) sq+=`<span class="sq ${st}" title="${STATES[st].label}"></span>`; }
+  return `<div class="bgrid${big?" big":""}">${sq}</div>`;
+}
+function countSummary(c){
+  return STATE_ORDER.filter(s=>c[s]>0).map(s=>`${c[s]} ${STATES[s].label.toLowerCase()}`).join(" · ") || "—";
+}
+function renderPipeline(){
+  const q = ($("search").value||"").toLowerCase();
+  const cols = {incubating:[],fruiting:[],complete:[]};
+  for(const b of batches){
+    if(b.archived) continue;
+    const hay = [b.name,b.species,b.scientific,b.substrate,b.spawn_code,b.method,"#"+b.batch_no].join(" ").toLowerCase();
+    if(q && !hay.includes(q)) continue;
+    cols[batchColumn(b)].push(b);
+  }
+  const colDefs=[["incubating","Incubating"],["fruiting","Fruiting"],["complete","Complete"]];
+  $("pipeline").innerHTML = colDefs.map(([key,label])=>`
+    <div class="col">
+      <div class="col-head"><h2>${label}</h2><span class="count">${cols[key].length} batch${cols[key].length===1?"":"es"}</span></div>
+      ${cols[key].map(cardHTML).join("") || `<div class="empty" style="padding:24px">Nothing here</div>`}
+    </div>`).join("");
+}
+function cardHTML(b){
+  const c=batchCounts(b), y=batchYield(b);
+  const age=daysBetween(b.inoc_date,todayISO());
+  return `<div class="card" onclick="openBatch('${b.id}')">
+    <h3>${esc(b.name)} <span class="bno mono">#${b.batch_no}</span></h3>
+    <div class="species">${esc(b.species)}${b.spawn_code?` · <span class="mono">${esc(b.spawn_code)}</span>`:""}</div>
+    ${miniGrid(b)}
+    <div class="stats">
+      <span><b>${fmtWeight(y)}</b> yield</span>
+      <span><b>${age}</b> days</span>
+      <span style="color:var(--muted)">${countSummary(c)}</span>
+    </div>
+  </div>`;
+}
+
+/* ================= RENDER: BATCH DETAIL ================= */
+function openBatch(id, push=true){
+  currentBatchId=id; renderBatch(); showView("batch", push);
+}
+function renderBatch(){
+  const b=batches.find(x=>x.id===currentBatchId);
+  if(!b){ showView("pipeline",false); return; }
+  const c=batchCounts(b), y=batchYield(b);
+  const cpb=costPerBlock(b.species);
+  const cost=cpb!=null?cpb*b.blocks_total:null;
+  const log=[
+    ...movements.filter(m=>m.batch_id===b.id).map(m=>({type:"mv",date:m.move_date,id:m.id,created:m.created_at,
+      text:`${m.count} block${m.count===1?"":"s"}: ${STATES[m.from_state]?.label||m.from_state} → ${STATES[m.to_state]?.label||m.to_state}${m.note?` — ${esc(m.note)}`:""}`})),
+    ...harvests.filter(h=>h.batch_id===b.id).map(h=>({type:"hv",date:h.harvest_date,id:h.id,created:h.created_at,
+      text:`${fmtWeight(Number(h.weight_g))}${h.flush?` · flush ${h.flush}`:""}${h.note?` — ${esc(h.note)}`:""}`}))
+  ].sort((a,x)=> a.date===x.date ? (a.created<x.created?1:-1) : (a.date<x.date?1:-1));
+
+  $("view-batch").innerHTML = `
+    <div class="detail-head">
+      <button class="btn btn-sm" onclick="showView('pipeline')">← Back</button>
+      <h2>${esc(b.name)} <span class="bno mono">#${b.batch_no}</span></h2>
+      <button class="btn btn-sm" onclick="showQR('${b.id}')">QR</button>
+      <button class="btn btn-sm" onclick="openForm('${b.id}')">Edit</button>
+      <button class="btn btn-sm" onclick="toggleArchive('${b.id}')">${b.archived?"Unarchive":"Archive"}</button>
+      <button class="btn btn-sm btn-danger" onclick="deleteBatch('${b.id}')">Delete</button>
+    </div>
+
+    <div class="statline">
+      <div class="stat"><div class="n">${fmtWeight(y)}</div><div class="l">Total yield</div></div>
+      <div class="stat"><div class="n">${batchHarvestCount(b)}</div><div class="l">Harvests</div></div>
+      <div class="stat"><div class="n">${daysBetween(b.inoc_date,todayISO())}</div><div class="l">Days since inoc</div></div>
+      <div class="stat"><div class="n">${c.fruiting>0&&y>0?fmtWeight(y/ (c.fruiting+c.complete||1)):(c.complete>0&&y>0?fmtWeight(y/c.complete):"—")}</div><div class="l">Yield / fruited block</div></div>
+      <div class="stat"><div class="n">${cost!=null?money(cost):"—"}</div><div class="l">Batch cost</div></div>
+    </div>
+
+    <div class="panel">
+      <h3>Blocks — ${b.blocks_total} total</h3>
+      ${miniGrid(b,true)}
+      <div class="legend">${STATE_ORDER.map(s=>`<span><span class="sq ${s}"></span>${STATES[s].label} (${c[s]})</span>`).join("")}</div>
+      <div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap">
+        <button class="btn btn-primary" onclick="openMove('${b.id}')">Move blocks</button>
+        <button class="btn btn-primary" onclick="openHarvest('${b.id}')">Log harvest</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>Details</h3>
+      <div class="info-grid">
+        <div><div class="k">Species</div><div class="v">${esc(b.species)||"—"}</div></div>
+        <div><div class="k">Scientific</div><div class="v">${esc(b.scientific)||"—"}</div></div>
+        <div><div class="k">Inoculated</div><div class="v">${fmtDate(b.inoc_date)}</div></div>
+        <div><div class="k">Substrate</div><div class="v">${esc(b.substrate)||"—"}</div></div>
+        <div><div class="k">Method</div><div class="v">${esc(b.method)||"—"}</div></div>
+        <div><div class="k">Spawn code</div><div class="v mono">${esc(b.spawn_code)||"—"}</div></div>
+      </div>
+      ${b.notes?`<div style="margin-top:12px;font-size:14px;color:var(--muted)">${esc(b.notes)}</div>`:""}
+    </div>
+
+    <div class="panel">
+      <h3>Activity log</h3>
+      <ul class="log">${ log.length ? log.map(e=>`
+        <li><span class="d">${fmtDate(e.date)}</span>
+            <span class="tag ${e.type}">${e.type==="mv"?"Move":"Harvest"}</span>
+            <span>${e.text}</span>
+            <button class="del" onclick="deleteLog('${e.type}','${e.id}')">✕</button></li>`).join("")
+        : `<li style="color:var(--muted)">Nothing yet — all ${b.blocks_total} blocks incubating since ${fmtDate(b.inoc_date)}.</li>` }
+      </ul>
+    </div>`;
+}
+
+/* ================= FORM ================= */
+function openForm(id){
+  editingId=id||null;
+  $("formTitle").textContent = id?"Edit batch":"New batch";
+  const b = id ? batches.find(x=>x.id===id) : null;
+  $("f_id").value=b?.id||"";
+  $("f_no").value=b?.batch_no ?? (batches.reduce((m,x)=>Math.max(m,x.batch_no),0)+1);
+  $("f_date").value=b?.inoc_date||todayISO();
+  $("f_name").value=b?.name||"";
+  $("f_species").value=b?.species||"";
+  $("f_sci").value=b?.scientific||"";
+  $("f_substrate").value=b?.substrate||"";
+  $("f_method").value=b?.method||"";
+  $("f_spawn").value=b?.spawn_code||"";
+  $("f_blocks").value=b?.blocks_total||"";
+  $("f_notes").value=b?.notes||"";
+  const species=[...new Set([...batches.map(x=>x.species),...costs.map(x=>x.species)].filter(Boolean))];
+  $("speciesList").innerHTML=species.map(s=>`<option value="${esc(s)}">`).join("");
+  const subs=[...new Set(batches.map(x=>x.substrate).filter(Boolean))];
+  $("subList").innerHTML=subs.map(s=>`<option value="${esc(s)}">`).join("");
+  showView("form");
+}
+function cancelForm(){ editingId ? openBatch(editingId) : showView("pipeline"); }
+async function saveBatch(){
+  const name=$("f_name").value.trim(), species=$("f_species").value.trim();
+  const blocks=parseInt($("f_blocks").value,10);
+  if(!name||!species||!blocks||blocks<1){ alert("Batch name, species and block count are required."); return; }
+  const rec={
+    batch_no:parseInt($("f_no").value,10)||1, name, species,
+    scientific:$("f_sci").value.trim()||null, substrate:$("f_substrate").value.trim()||null,
+    method:$("f_method").value.trim()||null, spawn_code:$("f_spawn").value.trim()||null,
+    inoc_date:$("f_date").value||todayISO(), blocks_total:blocks, notes:$("f_notes").value.trim()||null
+  };
+  if(editingId){
+    const b=batches.find(x=>x.id===editingId);
+    const moved = b.blocks_total - batchCounts(b).incubating;
+    if(blocks<moved){ alert(`Can't set block count below ${moved} — that many blocks have already been moved out of incubation.`); return; }
+    if(await write(db.from("mn_batches").update(rec).eq("id",editingId),"Couldn't update batch")) openBatch(editingId);
+  }else{
+    const {data,error}=await db.from("mn_batches").insert(rec).select().single();
+    if(error){ alert("Couldn't create batch.\n\n"+error.message); return; }
+    await loadAll(); openBatch(data.id);
+  }
+}
+async function toggleArchive(id){
+  const b=batches.find(x=>x.id===id);
+  if(await write(db.from("mn_batches").update({archived:!b.archived}).eq("id",id),"Couldn't archive")) b.archived?openBatch(id):showView("pipeline");
+}
+async function deleteBatch(id){
+  const b=batches.find(x=>x.id===id);
+  if(!confirm(`Delete "${b.name}" (#${b.batch_no}) and ALL its movements and harvests? This can't be undone.\n\nIf you just want it out of the way, use Archive instead.`)) return;
+  if(await write(db.from("mn_batches").delete().eq("id",id),"Couldn't delete")) showView("pipeline");
+}
+async function deleteLog(type,id){
+  if(!confirm("Delete this entry?")) return;
+  await write(db.from(type==="mv"?"mn_movements":"mn_harvests").delete().eq("id",id),"Couldn't delete entry");
+  renderBatch();
+}
+
+/* ================= MOVE & HARVEST ================= */
+let modalBatchId=null;
+function openModal(id){ $(id).classList.add("open"); }
+function closeModal(id){ $(id).classList.remove("open"); }
+document.querySelectorAll(".modal-bg").forEach(m=>m.addEventListener("click",e=>{ if(e.target===m) m.classList.remove("open"); }));
+
+function openMove(batchId){
+  modalBatchId=batchId;
+  const b=batches.find(x=>x.id===batchId), c=batchCounts(b);
+  $("mv_sub").textContent=`${b.name} #${b.batch_no}`;
+  const from=STATE_ORDER.filter(s=>c[s]>0);
+  $("mv_from").innerHTML=from.map(s=>`<option value="${s}">${STATES[s].label} (${c[s]} available)</option>`).join("");
+  moveFromChanged();
+  $("mv_date").value=todayISO(); $("mv_note").value="";
+  openModal("moveModal");
+}
+function moveFromChanged(){
+  const b=batches.find(x=>x.id===modalBatchId), c=batchCounts(b);
+  const f=$("mv_from").value;
+  $("mv_to").innerHTML=STATE_ORDER.filter(s=>s!==f).map(s=>`<option value="${s}">${STATES[s].label}</option>`).join("");
+  if(f==="incubating") $("mv_to").value="fruiting";
+  if(f==="fruiting") $("mv_to").value="complete";
+  $("mv_count").value=c[f]; $("mv_count").max=c[f];
+}
+async function saveMove(){
+  const b=batches.find(x=>x.id===modalBatchId), c=batchCounts(b);
+  const from=$("mv_from").value, to=$("mv_to").value, count=parseInt($("mv_count").value,10);
+  if(!count||count<1){ alert("Enter how many blocks to move."); return; }
+  if(count>c[from]){ alert(`Only ${c[from]} blocks are in ${STATES[from].label}.`); return; }
+  const ok=await write(db.from("mn_movements").insert({
+    batch_id:modalBatchId, move_date:$("mv_date").value||todayISO(),
+    from_state:from, to_state:to, count, note:$("mv_note").value.trim()||null
+  }),"Couldn't save movement");
+  if(ok){ closeModal("moveModal"); renderBatch(); }
+}
+
+function openHarvest(batchId){
+  modalBatchId=batchId;
+  const b=batches.find(x=>x.id===batchId);
+  $("hv_sub").textContent=`${b.name} #${b.batch_no}`;
+  const flushes=harvests.filter(h=>h.batch_id===batchId).map(h=>h.flush||0);
+  $("hv_flush").value=(flushes.length?Math.max(...flushes):0)+1;
+  $("hv_weight").value=""; $("hv_note").value=""; $("hv_date").value=todayISO();
+  openModal("harvestModal");
+  setTimeout(()=>$("hv_weight").focus(),100);
+}
+function addChip(t){ const n=$("hv_note"); n.value=n.value?n.value+", "+t:t; }
+async function saveHarvest(){
+  const w=parseFloat($("hv_weight").value);
+  if(!w||w<=0){ alert("Enter the harvest weight in grams."); return; }
+  const ok=await write(db.from("mn_harvests").insert({
+    batch_id:modalBatchId, harvest_date:$("hv_date").value||todayISO(),
+    weight_g:w, flush:parseInt($("hv_flush").value,10)||null, note:$("hv_note").value.trim()||null
+  }),"Couldn't save harvest");
+  if(ok){ closeModal("harvestModal"); renderBatch(); }
+}
+
+/* ================= QR ================= */
+function batchURL(b){ return location.origin+location.pathname+"?batch="+b.batch_no; }
+function showQR(id){
+  const b=batches.find(x=>x.id===id);
+  $("qr_title").textContent=`${b.name} #${b.batch_no}`;
+  $("qr_sub").textContent=b.species;
+  $("qr_box").innerHTML=""; $("qr_url").textContent=batchURL(b);
+  new QRCode($("qr_box"),{text:batchURL(b),width:200,height:200,correctLevel:QRCode.CorrectLevel.M});
+  openModal("qrModal");
+}
+function renderQRSheet(){
+  const list=batches.filter(b=>!b.archived).sort((a,b)=>a.batch_no-b.batch_no);
+  $("qrGrid").innerHTML=list.map(b=>`
+    <div class="qr-card">
+      <div class="qrbox" id="qrs_${b.id}"></div>
+      <div class="nm">${esc(b.name)} <span class="mono">#${b.batch_no}</span></div>
+      <div class="sp">${esc(b.species)} · inoc ${fmtDate(b.inoc_date)}</div>
+    </div>`).join("") || `<div class="empty">No active batches yet.</div>`;
+  for(const b of list) new QRCode($("qrs_"+b.id),{text:batchURL(b),width:130,height:130,correctLevel:QRCode.CorrectLevel.M});
+}
+
+/* ================= ANALYTICS ================= */
+function renderAnalytics(){
+  const bySpecies={};
+  for(const b of batches){
+    const k=b.species||"(unknown)";
+    (bySpecies[k]=bySpecies[k]||[]).push(b);
+  }
+  const rows=Object.entries(bySpecies).map(([sp,bs])=>{
+    let inoc=0,toFruit=0,contam=0,failed=0,culled=0,yld=0;
+    let fruitDays=[],completeDays=[];
+    for(const b of bs){
+      inoc+=b.blocks_total; yld+=batchYield(b);
+      for(const m of movements.filter(m=>m.batch_id===b.id)){
+        if(m.to_state==="fruiting") toFruit+=m.count;
+        if(m.to_state==="contaminated") contam+=m.count;
+        if(m.to_state==="failed") failed+=m.count;
+        if(m.to_state==="culled") culled+=m.count;
+        if(m.to_state==="complete") completeDays.push({d:daysBetween(b.inoc_date,m.move_date),w:m.count});
+      }
+      const ff=firstMoveTo(b,"fruiting");
+      if(ff) fruitDays.push(daysBetween(b.inoc_date,ff));
+    }
+    const avg=a=>a.length?Math.round(a.reduce((s,x)=>s+x,0)/a.length):null;
+    const wavg=a=>{const tw=a.reduce((s,x)=>s+x.w,0); return tw?Math.round(a.reduce((s,x)=>s+x.d*x.w,0)/tw):null;};
+    const cpb=costPerBlock(sp), sale=salePrice(sp);
+    const costKg=(cpb!=null&&yld>0)?(cpb*inoc)/(yld/1000):null;
+    const margin=(costKg!=null&&sale!=null)?sale-costKg:null;
+    return {sp,batches:bs.length,inoc,toFruit,contam,failed,culled,yld,
+      pctFruit:inoc?Math.round(toFruit/inoc*100):0, pctContam:inoc?Math.round(contam/inoc*100):0,
+      pctFailed:inoc?Math.round(failed/inoc*100):0,
+      avgFruit:avg(fruitDays), avgComplete:wavg(completeDays),
+      gPerBlock:toFruit&&yld?Math.round(yld/toFruit):null, cpb, costKg, sale, margin};
+  }).sort((a,b)=>b.yld-a.yld);
+
+  if(!rows.length){ $("analyticsWrap").innerHTML=`<div class="empty">No batches yet — analytics will build themselves as you log.</div>`; return; }
+  $("analyticsWrap").innerHTML=`<div class="tablewrap"><table>
+    <tr><th>Species</th><th>Batches</th><th>Blocks inoc</th><th>→ Fruiting</th><th>Contam</th><th>No colonise</th>
+        <th>Avg days → fruit</th><th>Avg days → done</th><th>Total yield</th><th>g / fruited block</th>
+        <th>Cost / block</th><th>Cost / kg</th><th>Sale $ / kg</th><th>Margin / kg</th></tr>
+    ${rows.map(r=>`<tr>
+      <td><b>${esc(r.sp)}</b></td><td>${r.batches}</td><td>${r.inoc}</td>
+      <td>${r.toFruit} (${r.pctFruit}%)</td>
+      <td>${r.contam?`${r.contam} (${r.pctContam}%)`:"0"}</td>
+      <td>${r.failed?`${r.failed} (${r.pctFailed}%)`:"0"}</td>
+      <td>${r.avgFruit??"—"}</td><td>${r.avgComplete??"—"}</td>
+      <td>${fmtWeight(r.yld)}</td><td>${r.gPerBlock??"—"}</td>
+      <td>${r.cpb!=null?money(r.cpb):"—"}</td>
+      <td>${r.costKg!=null?money(r.costKg):"—"}</td>
+      <td>${r.sale!=null?money(r.sale):"—"}</td>
+      <td class="${r.margin==null?"":r.margin<0?"neg":"pos"}">${r.margin!=null?money(r.margin):"—"}</td>
+    </tr>`).join("")}
+  </table></div>`;
+}
+
+/* ================= COSTS ================= */
+function renderCosts(){
+  const species=[...new Set([...batches.map(b=>b.species),...costs.map(c=>c.species)].filter(Boolean))].sort();
+  if(!species.length){ $("costsWrap").innerHTML=`<div class="empty">Create a batch first — its species will show up here.</div>`; return; }
+  $("costsWrap").innerHTML=`<div class="tablewrap"><table class="costs-table">
+    <tr><th>Species</th><th>Substrate $</th><th>Spawn $</th><th>Bag $</th><th>Other / power $</th><th>Total / block</th><th>Sale $ / kg</th><th></th></tr>
+    ${species.map(sp=>{
+      const c=costs.find(x=>x.species.toLowerCase()===sp.toLowerCase())||{};
+      const tot=(Number(c.substrate_cost)||0)+(Number(c.spawn_cost)||0)+(Number(c.bag_cost)||0)+(Number(c.other_cost)||0);
+      const sid=sp.replace(/[^a-z0-9]/gi,"_");
+      return `<tr>
+        <td><b>${esc(sp)}</b></td>
+        <td><input type="number" step="0.01" id="c_sub_${sid}" value="${c.substrate_cost??""}" placeholder="0"></td>
+        <td><input type="number" step="0.01" id="c_spw_${sid}" value="${c.spawn_cost??""}" placeholder="0"></td>
+        <td><input type="number" step="0.01" id="c_bag_${sid}" value="${c.bag_cost??""}" placeholder="0"></td>
+        <td><input type="number" step="0.01" id="c_oth_${sid}" value="${c.other_cost??""}" placeholder="0"></td>
+        <td><b>${money(tot)}</b></td>
+        <td><input type="number" step="0.5" id="c_sale_${sid}" value="${c.sale_price_kg??""}" placeholder="e.g. 45"></td>
+        <td><button class="btn btn-sm btn-primary" onclick="saveCost('${esc(sp).replace(/'/g,"\\'")}','${sid}')">Save</button></td>
+      </tr>`;}).join("")}
+  </table></div>`;
+}
+async function saveCost(sp,sid){
+  const num=id=>parseFloat($(id).value)||0;
+  const rec={species:sp, substrate_cost:num("c_sub_"+sid), spawn_cost:num("c_spw_"+sid),
+    bag_cost:num("c_bag_"+sid), other_cost:num("c_oth_"+sid),
+    sale_price_kg:parseFloat($("c_sale_"+sid).value)||null, updated_at:new Date().toISOString()};
+  await write(db.from("mn_costs").upsert(rec,{onConflict:"species"}),"Couldn't save costs");
+}
+
+/* ================= ARCHIVE ================= */
+function renderArchive(){
+  const list=batches.filter(b=>b.archived);
+  $("archiveWrap").innerHTML = list.length
+    ? `<div class="pipeline" style="grid-template-columns:repeat(auto-fill,minmax(280px,1fr))">${list.map(cardHTML).join("")}</div>`
+    : `<div class="empty">No archived batches. Archiving keeps a batch's data in Analytics but clears it off the pipeline.</div>`;
+}
+
+/* ================= EXPORT ================= */
+function dl(name,text){ const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([text],{type:"text/csv"})); a.download=name; a.click(); }
+function csvCell(v){ v=(v??"").toString(); return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; }
+function exportCSV(){
+  const bh=["batch_no","name","species","scientific","substrate","method","spawn_code","inoc_date","blocks_total","incubating","fruiting","complete","contaminated","failed","culled","total_yield_g","harvest_count","archived","notes"];
+  const brows=batches.map(b=>{const c=batchCounts(b);return [b.batch_no,b.name,b.species,b.scientific,b.substrate,b.method,b.spawn_code,b.inoc_date,b.blocks_total,c.incubating,c.fruiting,c.complete,c.contaminated,c.failed,c.culled,batchYield(b),batchHarvestCount(b),b.archived,b.notes].map(csvCell).join(",");});
+  dl("batches.csv",[bh.join(","),...brows].join("\n"));
+  const hh=["batch_no","batch_name","species","harvest_date","weight_g","flush","note"];
+  const hrows=harvests.map(h=>{const b=batches.find(x=>x.id===h.batch_id)||{};return [b.batch_no,b.name,b.species,h.harvest_date,h.weight_g,h.flush,h.note].map(csvCell).join(",");});
+  setTimeout(()=>dl("harvests.csv",[hh.join(","),...hrows].join("\n")),400);
+}
+
+/* ================= BOOT ================= */
+function renderAll(){
+  renderPipeline(); renderAnalytics(); renderCosts(); renderArchive();
+  if($("view-batch").classList.contains("active")) renderBatch();
+  if($("view-qr").classList.contains("active")) renderQRSheet();
+}
+loadCache(); renderAll();
+loadAll().then(()=>routeFromURL(false));
+</script>
+</body>
+</html>
