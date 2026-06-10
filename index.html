@@ -17,6 +17,19 @@
   --st-contaminated:#C2503C; --st-failed:#D98E3A; --st-culled:#6E665A;
   --radius:10px; --shadow:0 1px 3px rgba(42,36,27,.08);
 }
+[data-theme="dark"]{
+  --bg:#1B1916; --card:#262320; --ink:#EDE8DF; --muted:#A39A8B; --line:#3A352F;
+  --accent-ink:#FFFFFF; --danger:#E07A66;
+  --st-incubating:#7C766A; --shadow:0 1px 3px rgba(0,0,0,.4);
+}
+[data-theme="dark"] input,[data-theme="dark"] select,[data-theme="dark"] textarea{background:#1F1D1A;border-color:#3A352F}
+[data-theme="dark"] .note-banner{background:#2B2820;border-color:#423D2C;color:#C9BE9C}
+[data-theme="dark"] .label,[data-theme="dark"] .qr-card,[data-theme="dark"] .slot.empty{background:#fff}
+[data-theme="dark"] .slot.empty{color:#888}
+[data-theme="dark"] .label .nm,[data-theme="dark"] .label .ln{color:#1d1d1d}
+[data-theme="dark"] th{background:#211F1B}
+[data-theme="dark"] .tag.mv{background:#22303f;color:#9cc4e8}
+[data-theme="dark"] .tag.hv{background:#22331e;color:#9fd494}
 *{box-sizing:border-box;margin:0;padding:0}
 html{-webkit-text-size-adjust:100%}
 body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink);font-size:15px;line-height:1.45}
@@ -32,10 +45,21 @@ a{color:var(--accent)}
 header{background:var(--card);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:50}
 .hdr-top{display:flex;align-items:center;gap:10px;padding:12px 16px;max-width:1200px;margin:0 auto}
 .logo{width:26px;height:26px;flex:none}
+.hdr-logo{width:26px;height:26px;flex:none;display:inline-flex;align-items:center;justify-content:center}
+.hdr-logo img{width:26px;height:26px;object-fit:contain;border-radius:5px}
 .hdr-top h1{font-size:20px;letter-spacing:.2px;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .sync{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);flex:none}
 .sync .dot{width:8px;height:8px;border-radius:50%;background:#A9A294}
 .sync.ok .dot{background:var(--st-complete)} .sync.bad .dot{background:var(--st-contaminated)}
+.hdr-gear{flex:none;font-size:18px;color:var(--muted);padding:4px 6px;line-height:1;border-radius:6px}
+.hdr-gear:hover{color:var(--ink);background:var(--bg)}
+.swatches{display:flex;flex-wrap:wrap;gap:10px;margin-top:6px}
+.swatch{width:34px;height:34px;border-radius:50%;cursor:pointer;border:2px solid transparent;position:relative}
+.swatch.sel{border-color:var(--ink)}
+.swatch.sel::after{content:"✓";position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px;font-weight:700;text-shadow:0 0 2px rgba(0,0,0,.5)}
+#pf_themeseg{margin-top:6px}
+#pf_themeseg button.active{background:var(--accent);color:var(--accent-ink)}
+.logo-prev{height:38px;border:1px solid var(--line);border-radius:6px;background:#fff;padding:3px}
 nav{display:flex;gap:4px;padding:0 12px 0;max-width:1200px;margin:0 auto;overflow-x:auto}
 nav button{padding:9px 14px;font-weight:600;font-size:14px;color:var(--muted);border-bottom:3px solid transparent;white-space:nowrap}
 nav button.active{color:var(--ink);border-bottom-color:var(--accent)}
@@ -231,9 +255,10 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
 
 <header>
   <div class="hdr-top">
-    <svg class="logo" viewBox="0 0 24 24" fill="none"><path d="M12 3C7 3 3 6.6 3 10.5c0 .8.7 1.5 1.5 1.5h15c.8 0 1.5-.7 1.5-1.5C21 6.6 17 3 12 3Z" fill="#3E5C42"/><path d="M9.5 12.5 9 19a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2l-.5-6.5h-5Z" fill="#C9C2B4"/></svg>
-    <h1>Markwood Batch Tracker</h1>
+    <span id="hdrLogo" class="hdr-logo"></span>
+    <h1 id="hdrName">Markwood Batch Tracker</h1>
     <div class="sync" id="sync"><span class="dot"></span><span id="syncText">Loading…</span></div>
+    <button class="hdr-gear" id="hdrGear" onclick="openPrefs()" title="Appearance & settings" aria-label="Settings">⚙</button>
   </div>
   <nav>
     <button data-view="pipeline" class="active">Pipeline</button>
@@ -457,12 +482,155 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
   </div>
 </div>
 
+<!-- PREFERENCES MODAL -->
+<div class="modal-bg" id="prefsModal">
+  <div class="modal">
+    <h3>Appearance & settings</h3>
+    <div class="sub">Theme and accent are personal to whoever's using this device. Farm name and logo are shared by everyone.</div>
+
+    <label>Who's using this device?</label>
+    <input id="pf_user" placeholder="e.g. Adam, Emma" oninput="prefUserChanged()">
+    <div class="sub" id="pf_userhint" style="margin-top:4px"></div>
+
+    <label>Theme</label>
+    <div class="seg" id="pf_themeseg" style="display:flex">
+      <button data-theme="light" onclick="setTheme('light')">☀ Light</button>
+      <button data-theme="dark" onclick="setTheme('dark')">🌙 Dark</button>
+      <button data-theme="auto" onclick="setTheme('auto')">Auto</button>
+    </div>
+
+    <label>Accent colour</label>
+    <div class="swatches" id="pf_swatches"></div>
+
+    <hr style="border:none;border-top:1px solid var(--line);margin:20px 0 4px">
+    <div class="sub" style="margin-bottom:8px">Shared farm branding (everyone sees this)</div>
+    <label>Farm name (header title)</label>
+    <input id="pf_farmname" placeholder="Markwood Batch Tracker">
+    <label>Header logo</label>
+    <div style="display:flex;align-items:center;gap:8px;min-height:40px" id="pf_logoprev"></div>
+    <div style="display:flex;gap:8px;margin-top:6px">
+      <button class="btn btn-sm" onclick="$('pf_logofile').click()">Upload logo</button>
+      <button class="btn btn-sm" onclick="useLabelLogo()">Use my label logo</button>
+    </div>
+    <input type="file" id="pf_logofile" accept="image/*" style="display:none" onchange="uploadHdrLogo(event)">
+
+    <div class="actions">
+      <button class="btn btn-primary" onclick="saveFarmBranding()">Save branding</button>
+      <button class="btn" onclick="closeModal('prefsModal')">Done</button>
+    </div>
+  </div>
+</div>
+
 <script>
 /* ================= CONFIG ================= */
 const SUPABASE_URL = "https://jckfsvjodrrauwvpecks.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impja2ZzdmpvZHJyYXV3dnBlY2tzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5ODk4NTgsImV4cCI6MjA5NjU2NTg1OH0.ECtXTPKstyRW3Q_au5oucobZ1Axw44SDZXz368wNi4g";
 const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-const APP_VERSION = "v1.7 · one-label-per-page printing · 10 Jun 2026";
+const APP_VERSION = "v1.8 · themes & branding · 10 Jun 2026";
+
+/* ================= APPEARANCE (per-user) + BRANDING (shared) ================= */
+const ACCENTS=[
+  {name:"Forest",v:"#3E5C42"},{name:"Teal",v:"#2F7E7E"},{name:"Ocean",v:"#2F6BAB"},
+  {name:"Plum",v:"#7A4E86"},{name:"Berry",v:"#9E3B63"},{name:"Rust",v:"#B5582E"},
+  {name:"Amber",v:"#B9852B"},{name:"Slate",v:"#4A5568"}
+];
+let prefs={user:"", theme:"light", accent:"#3E5C42"};
+let branding={farmName:"Markwood Batch Tracker", logo:null};
+
+function prefsKey(){ return "mn_prefs::"+(localStorage.getItem("mn_device_user")||"default"); }
+function loadPrefs(){
+  const u=localStorage.getItem("mn_device_user")||"";
+  prefs.user=u;
+  try{ const p=JSON.parse(localStorage.getItem(prefsKey())); if(p) prefs={...prefs,...p,user:u}; }catch(e){}
+  applyAppearance();
+}
+function savePrefs(){
+  if(prefs.user) localStorage.setItem("mn_device_user",prefs.user);
+  try{ localStorage.setItem(prefsKey(),JSON.stringify({theme:prefs.theme,accent:prefs.accent})); }catch(e){}
+}
+function effectiveTheme(){
+  if(prefs.theme==="auto") return window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";
+  return prefs.theme;
+}
+function applyAppearance(){
+  document.documentElement.setAttribute("data-theme",effectiveTheme());
+  document.documentElement.style.setProperty("--accent",prefs.accent);
+}
+if(window.matchMedia) window.matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change",()=>{ if(prefs.theme==="auto") applyAppearance(); });
+
+function applyBranding(){
+  $("hdrName").textContent=branding.farmName||"Batch Tracker";
+  $("hdrLogo").innerHTML = branding.logo
+    ? `<img src="${branding.logo}" alt="">`
+    : `<svg class="logo" viewBox="0 0 24 24" fill="none"><path d="M12 3C7 3 3 6.6 3 10.5c0 .8.7 1.5 1.5 1.5h15c.8 0 1.5-.7 1.5-1.5C21 6.6 17 3 12 3Z" fill="var(--accent)"/><path d="M9.5 12.5 9 19a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2l-.5-6.5h-5Z" fill="var(--st-incubating)"/></svg>`;
+  document.title=branding.farmName||"Batch Tracker";
+}
+async function loadBranding(){
+  try{ const c=JSON.parse(localStorage.getItem("mn_branding")); if(c) branding={...branding,...c}; }catch(e){}
+  applyBranding();
+  try{
+    const {data,error}=await db.from("mn_settings").select("*").in("key",["farm_name","hdr_logo"]);
+    if(!error&&data){ for(const r of data){ if(r.key==="farm_name") branding.farmName=r.value; if(r.key==="hdr_logo") branding.logo=r.value; }
+      localStorage.setItem("mn_branding",JSON.stringify(branding)); applyBranding(); }
+  }catch(e){ console.warn("Branding not synced (mn_settings missing?)",e); }
+}
+
+function openPrefs(){
+  $("pf_user").value=prefs.user||"";
+  prefUserChanged();
+  renderThemeSeg(); renderSwatches();
+  $("pf_farmname").value=branding.farmName||"";
+  renderHdrLogoPrev();
+  openModal("prefsModal");
+}
+function prefUserChanged(){
+  const name=$("pf_user").value.trim();
+  $("pf_userhint").textContent = name ? `Theme & accent will be remembered for "${name}" on this device.` : "Enter a name so your look is remembered separately from others on this device.";
+}
+function renderThemeSeg(){
+  document.querySelectorAll("#pf_themeseg button").forEach(b=>b.classList.toggle("active",b.dataset.theme===prefs.theme));
+}
+function renderSwatches(){
+  $("pf_swatches").innerHTML=ACCENTS.map(a=>`<span class="swatch${a.v===prefs.accent?" sel":""}" style="background:${a.v}" title="${a.name}" onclick="setAccent('${a.v}')"></span>`).join("");
+}
+function setTheme(t){
+  prefs.user=$("pf_user").value.trim();
+  prefs.theme=t; savePrefs(); applyAppearance(); renderThemeSeg();
+}
+function setAccent(v){
+  prefs.user=$("pf_user").value.trim();
+  prefs.accent=v; savePrefs(); applyAppearance(); renderSwatches();
+}
+function renderHdrLogoPrev(){
+  $("pf_logoprev").innerHTML = branding.logo
+    ? `<img class="logo-prev" src="${branding.logo}" alt="Logo"><button class="btn btn-sm" onclick="clearHdrLogo()">Remove</button>`
+    : `<span style="color:var(--muted);font-size:13px">Using default mushroom icon</span>`;
+}
+function uploadHdrLogo(e){
+  const file=e.target.files[0]; if(!file) return;
+  const r=new FileReader();
+  r.onload=()=>{ const img=new Image();
+    img.onload=()=>{ const max=160, sc=Math.min(1,max/Math.max(img.width,img.height));
+      const cv=document.createElement("canvas"); cv.width=Math.round(img.width*sc); cv.height=Math.round(img.height*sc);
+      cv.getContext("2d").drawImage(img,0,0,cv.width,cv.height);
+      branding.logo=cv.toDataURL("image/png"); renderHdrLogoPrev(); applyBranding();
+    }; img.src=r.result; };
+  r.readAsDataURL(file); e.target.value="";
+}
+function useLabelLogo(){ if(labelCfg.logo){ branding.logo=labelCfg.logo; renderHdrLogoPrev(); applyBranding(); } else alert("No label logo uploaded yet — add one in the Labels tab first."); }
+function clearHdrLogo(){ branding.logo=null; renderHdrLogoPrev(); applyBranding(); }
+async function saveFarmBranding(){
+  branding.farmName=$("pf_farmname").value.trim()||"Batch Tracker";
+  applyBranding();
+  localStorage.setItem("mn_branding",JSON.stringify(branding));
+  setSync("","Saving…");
+  try{
+    await db.from("mn_settings").upsert({key:"farm_name",value:branding.farmName},{onConflict:"key"});
+    if(branding.logo) await db.from("mn_settings").upsert({key:"hdr_logo",value:branding.logo},{onConflict:"key"});
+    else await db.from("mn_settings").delete().eq("key","hdr_logo");
+    setSync("ok","Synced");
+  }catch(e){ setSync("bad","Save failed"); alert("Couldn't sync branding.\n\n"+e.message); }
+}
 
 const STATES = {
   incubating:  {label:"Incubating",      color:"var(--st-incubating)"},
@@ -1432,6 +1600,7 @@ function renderAll(){
 }
 loadCache(); renderAll();
 { const v=$("appVer"); if(v) v.textContent=APP_VERSION; }
+loadPrefs(); loadBranding();
 loadSettings();
 loadAll().then(()=>routeFromURL(false));
 </script>
