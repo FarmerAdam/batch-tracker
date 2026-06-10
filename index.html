@@ -126,7 +126,53 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
 .chip:active{background:var(--bg)}
 @media(min-width:560px){.modal-bg{align-items:center;padding:20px}.modal{border-radius:14px}}
 
-/* label builder */
+/* segmented control */
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--card)}
+.seg button{padding:9px 15px;font-weight:600;font-size:14px;color:var(--muted);border-right:1px solid var(--line)}
+.seg button:last-child{border-right:none}
+.seg button.active{background:var(--accent);color:var(--accent-ink)}
+.seg button.active[data-mode="harvest"]{background:var(--st-fruiting);border-color:var(--st-fruiting)}
+.seg button.active[data-mode="remove"]{background:var(--danger);border-color:var(--danger)}
+
+/* room */
+.zone{margin-bottom:22px}
+.zone-head{display:flex;align-items:baseline;gap:10px;margin-bottom:10px;padding-bottom:6px;border-bottom:2px solid var(--line)}
+.zone-head h2{font-size:18px;text-transform:uppercase;letter-spacing:.6px}
+.zone-head .zmeta{font-size:12px;color:var(--muted)}
+.bays{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start}
+.bay{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:12px}
+.bay-head{font-family:"Zilla Slab",serif;font-weight:700;font-size:15px;margin-bottom:8px;text-align:center}
+.shelf{display:flex;align-items:flex-start;gap:6px;margin-bottom:5px}
+.shelf .rl{font-family:"IBM Plex Mono",monospace;font-weight:600;font-size:12px;color:var(--muted);width:16px;flex:none;padding-top:6px;text-align:center}
+.slots{display:flex;flex-wrap:wrap;gap:4px;max-width:100%}
+.slots.wrap-line{flex-direction:column}
+.line{display:flex;gap:4px}
+.slot{width:54px;height:54px;border-radius:7px;border:1.5px dashed var(--line);background:#FBFAF6;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;font-size:10px;line-height:1.1;text-align:center;padding:2px;overflow:hidden;position:relative;transition:transform .05s}
+.slot:hover{border-style:solid}
+.slot:active{transform:scale(.94)}
+.slot.empty{color:#C4BCAC;font-family:"IBM Plex Mono",monospace}
+.slot.full{border-style:solid;color:#fff;border-color:transparent}
+.slot .s-no{font-weight:700;font-size:11px}
+.slot .s-sp{font-size:9px;opacity:.95;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.slot .s-d{font-size:9px;opacity:.9}
+.slot .s-y{font-size:9px;font-weight:700}
+.slot .harv-dot{position:absolute;top:3px;right:3px;width:7px;height:7px;border-radius:50%;background:#fff;box-shadow:0 0 0 1.5px rgba(0,0,0,.15)}
+.mode-place .slot.empty{border-color:var(--accent);background:#EFF3EF}
+.mode-harvest .slot.full{box-shadow:inset 0 0 0 2px rgba(255,255,255,.5)}
+.room-legend{display:flex;flex-wrap:wrap;gap:12px;font-size:13px;color:var(--muted);margin:4px 0 16px}
+.room-legend span{display:inline-flex;align-items:center;gap:5px}
+.room-legend i{width:12px;height:12px;border-radius:3px;display:inline-block}
+
+/* setup */
+.setup-zone{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:14px;margin-bottom:14px}
+.setup-zone .zrow{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin-bottom:12px}
+.setup-zone .zrow>div{flex:1;min-width:120px}
+.setup-bay{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;padding:10px;border:1px solid var(--line);border-radius:8px;margin-bottom:8px;background:#FBFAF6}
+.setup-bay>div{flex:1;min-width:78px}
+.setup-bay label{margin:0 0 3px}
+.setup-bay input{padding:7px 8px}
+
+
 .lbl-controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;align-items:start}
 .lbl-controls label{margin-top:0}
 .lbl-checks{display:flex;flex-wrap:wrap;gap:14px;margin-top:14px;font-size:14px}
@@ -163,6 +209,7 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
   </div>
   <nav>
     <button data-view="pipeline" class="active">Pipeline</button>
+    <button data-view="room">Room</button>
     <button data-view="analytics">Analytics</button>
     <button data-view="costs">Costs</button>
     <button data-view="qr">Labels</button>
@@ -185,6 +232,34 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
 
 <!-- BATCH DETAIL -->
 <section class="view" id="view-batch"></section>
+
+<!-- ROOM -->
+<section class="view" id="view-room">
+  <div class="toolbar">
+    <div class="seg" id="roomModes">
+      <button data-mode="view" class="active">View</button>
+      <button data-mode="place">Place</button>
+      <button data-mode="harvest">Harvest</button>
+      <button data-mode="remove">Remove</button>
+    </div>
+    <div class="spacer"></div>
+    <button class="btn btn-sm" onclick="showView('roomsetup')">⚙ Room setup</button>
+  </div>
+  <div id="placeBanner"></div>
+  <div id="roomStats" class="statline"></div>
+  <div id="roomWrap"></div>
+</section>
+
+<!-- ROOM SETUP -->
+<section class="view" id="view-roomsetup">
+  <div class="toolbar">
+    <button class="btn btn-sm" onclick="showView('room')">← Back to room</button>
+    <h2 style="font-size:22px">Room setup</h2>
+  </div>
+  <div class="note-banner">Build your room: add zones (walls / centre island), then bays. Each bay's rows become letters (A, B, C…) and slots run left to right. Edit any number any time — existing placements stay put.</div>
+  <div id="setupWrap"></div>
+  <div style="margin-top:14px"><button class="btn btn-primary" onclick="addZone()">＋ Add zone</button></div>
+</section>
 
 <!-- NEW / EDIT FORM -->
 <section class="view" id="view-form">
@@ -352,7 +427,19 @@ const STATES = {
 const STATE_ORDER = ["incubating","fruiting","complete","contaminated","failed","culled"];
 
 let batches=[], movements=[], harvests=[], costs=[];
+let zones=[], bays=[], placements=[];
 let currentBatchId=null, editingId=null;
+let roomMode="view", placeBatchId=null;
+
+/* deterministic colour per species */
+const SPECIES_PALETTE=["#4D8FD1","#5E9E54","#C2503C","#D98E3A","#8E6FB8","#3FA6A6","#C26B9E","#7A8B3C","#B5793A","#5C7CB0"];
+const _spcCache={};
+function speciesColor(sp){
+  if(!sp) return "#9A9284";
+  if(_spcCache[sp]) return _spcCache[sp];
+  let h=0; for(let i=0;i<sp.length;i++) h=(h*31+sp.charCodeAt(i))>>>0;
+  return _spcCache[sp]=SPECIES_PALETTE[h%SPECIES_PALETTE.length];
+}
 
 /* ================= HELPERS ================= */
 const $ = id => document.getElementById(id);
@@ -381,20 +468,25 @@ function costPerBlock(species){ const c=costs.find(x=>x.species.toLowerCase()===
 function salePrice(species){ const c=costs.find(x=>x.species.toLowerCase()===species.toLowerCase()); return c?.sale_price_kg?Number(c.sale_price_kg):null; }
 
 /* ================= DATA ================= */
-function cache(){ try{ localStorage.setItem("mn_cache", JSON.stringify({batches,movements,harvests,costs})); }catch(e){} }
-function loadCache(){ try{ const d=JSON.parse(localStorage.getItem("mn_cache")); if(d){batches=d.batches||[];movements=d.movements||[];harvests=d.harvests||[];costs=d.costs||[];} }catch(e){} }
+function cache(){ try{ localStorage.setItem("mn_cache", JSON.stringify({batches,movements,harvests,costs,zones,bays,placements})); }catch(e){} }
+function loadCache(){ try{ const d=JSON.parse(localStorage.getItem("mn_cache")); if(d){batches=d.batches||[];movements=d.movements||[];harvests=d.harvests||[];costs=d.costs||[];zones=d.zones||[];bays=d.bays||[];placements=d.placements||[];} }catch(e){} }
 
 async function loadAll(){
   setSync("","Syncing…");
   try{
-    const [b,m,h,c] = await Promise.all([
+    const [b,m,h,c,z,ba,pl] = await Promise.all([
       db.from("mn_batches").select("*").order("batch_no",{ascending:false}),
       db.from("mn_movements").select("*"),
       db.from("mn_harvests").select("*"),
-      db.from("mn_costs").select("*")
+      db.from("mn_costs").select("*"),
+      db.from("mn_zones").select("*").order("sort_order"),
+      db.from("mn_bays").select("*").order("sort_order"),
+      db.from("mn_placements").select("*")
     ]);
     if(b.error||m.error||h.error||c.error) throw (b.error||m.error||h.error||c.error);
     batches=b.data; movements=m.data; harvests=h.data; costs=c.data;
+    zones=z.error?[]:z.data; bays=ba.error?[]:ba.data; placements=pl.error?[]:pl.data;
+    if(z.error) console.warn("Room tables not found yet — run setup_room.sql.",z.error);
     cache(); setSync("ok","Synced");
   }catch(e){
     console.error(e); loadCache();
@@ -418,7 +510,13 @@ function showView(name, push=true){
   if(push){ const url = name==="batch"&&currentBatchId ? "?batch="+(batches.find(b=>b.id===currentBatchId)?.batch_no??"") : location.pathname; history.pushState({},"",url); }
   window.scrollTo(0,0);
 }
-document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>{ if(b.dataset.view==="qr") renderLabels(); showView(b.dataset.view); });
+document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>{
+  const v=b.dataset.view;
+  if(v==="qr") renderLabels();
+  if(v==="room") renderRoom();
+  if(v==="roomsetup") renderSetup();
+  showView(v);
+});
 window.addEventListener("popstate", ()=>{ routeFromURL(false); });
 function routeFromURL(push){
   const p = new URLSearchParams(location.search).get("batch");
@@ -506,6 +604,7 @@ function renderBatch(){
       <h3>Blocks — ${b.blocks_total} total</h3>
       ${miniGrid(b,true)}
       <div class="legend">${STATE_ORDER.map(s=>`<span><span class="sq ${s}"></span>${STATES[s].label} (${c[s]})</span>`).join("")}</div>
+      ${(()=>{ const on=placements.filter(p=>p.batch_id===b.id&&!p.removed_date); return on.length?`<div style="margin-top:12px;font-size:14px"><b>On shelves (${on.length}):</b> <span class="mono" style="color:var(--muted)">${on.map(p=>p.slot_code).sort().join(", ")}</span></div>`:""; })()}
       <div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap">
         <button class="btn btn-primary" onclick="openMove('${b.id}')">Move blocks</button>
         <button class="btn btn-primary" onclick="openHarvest('${b.id}')">Log harvest</button>
@@ -632,10 +731,11 @@ async function saveMove(){
   if(ok){ closeModal("moveModal"); renderBatch(); }
 }
 
-function openHarvest(batchId){
-  modalBatchId=batchId;
+let harvestSlot=null;
+function openHarvest(batchId, slotCode){
+  modalBatchId=batchId; harvestSlot=slotCode||null;
   const b=batches.find(x=>x.id===batchId);
-  $("hv_sub").textContent=`${b.name} #${b.batch_no}`;
+  $("hv_sub").textContent=`${b.name} #${b.batch_no}`+(harvestSlot?` · slot ${harvestSlot}`:"");
   const flushes=harvests.filter(h=>h.batch_id===batchId).map(h=>h.flush||0);
   $("hv_flush").value=(flushes.length?Math.max(...flushes):0)+1;
   $("hv_weight").value=""; $("hv_note").value=""; $("hv_date").value=todayISO();
@@ -648,9 +748,13 @@ async function saveHarvest(){
   if(!w||w<=0){ alert("Enter the harvest weight in grams."); return; }
   const ok=await write(db.from("mn_harvests").insert({
     batch_id:modalBatchId, harvest_date:$("hv_date").value||todayISO(),
-    weight_g:w, flush:parseInt($("hv_flush").value,10)||null, note:$("hv_note").value.trim()||null
+    weight_g:w, flush:parseInt($("hv_flush").value,10)||null, note:$("hv_note").value.trim()||null,
+    slot_code:harvestSlot
   }),"Couldn't save harvest");
-  if(ok){ closeModal("harvestModal"); renderBatch(); }
+  if(ok){ closeModal("harvestModal");
+    if($("view-room").classList.contains("active")) renderRoom(); else renderBatch();
+    harvestSlot=null;
+  }
 }
 
 /* ================= QR ================= */
@@ -663,7 +767,229 @@ function showQR(id){
   new QRCode($("qr_box"),{text:batchURL(b),width:200,height:200,correctLevel:QRCode.CorrectLevel.M});
   openModal("qrModal");
 }
-/* ================= LABEL BUILDER ================= */
+/* ================= ROOM / FRUITING CHAMBER ================= */
+const rowLetter = i => { let s=""; i++; while(i>0){ i--; s=String.fromCharCode(65+(i%26))+s; i=Math.floor(i/26);} return s; };
+const baysOf = z => bays.filter(b=>b.zone_id===z.id).sort((a,b)=>(a.sort_order-b.sort_order)||(a.bay_no-b.bay_no));
+const placementAt = code => placements.find(p=>p.slot_code===code && !p.removed_date);
+const slotCode = (bay,letter,n)=> `B${bay.bay_no}-${letter}-${n}`;
+const placedYield = p => harvests.filter(h=>h.slot_code===p.slot_code && (!p.removed_date || h.harvest_date<=p.removed_date) && h.batch_id===p.batch_id).reduce((s,h)=>s+Number(h.weight_g),0);
+
+document.querySelectorAll("#roomModes button").forEach(b=>b.onclick=()=>{
+  roomMode=b.dataset.mode;
+  document.querySelectorAll("#roomModes button").forEach(x=>x.classList.toggle("active",x===b));
+  if(roomMode!=="place") placeBatchId=null;
+  renderRoom();
+});
+
+function roomStats(){
+  const active=placements.filter(p=>!p.removed_date);
+  const totalSlots=bays.reduce((s,b)=>s+b.rows*b.slots_per_row,0);
+  const yld=active.reduce((s,p)=>s+placedYield(p),0);
+  const ages=active.map(p=>daysBetween(p.placed_date,todayISO()));
+  const avgAge=ages.length?Math.round(ages.reduce((a,b)=>a+b,0)/ages.length):0;
+  return {occupied:active.length,totalSlots,yld,avgAge};
+}
+
+function renderRoom(){
+  document.getElementById("view-room").className="view"+(document.getElementById("view-room").classList.contains("active")?" active":"");
+  const wrap=$("roomWrap");
+  if(!zones.length){
+    wrap.innerHTML=`<div class="empty">No room set up yet.<br><br><button class="btn btn-primary" onclick="seedRoom()">Build my room automatically</button> &nbsp; or <button class="btn" onclick="showView('roomsetup')">set up manually</button><br><br><span style="font-size:13px">The auto-build creates your 2 walls (3 bays × 9 rows × 6) and centre island (5 rows × 24). Editable after.</span></div>`;
+    $("roomStats").innerHTML=""; $("placeBanner").innerHTML=""; return;
+  }
+  // mode class
+  wrap.className = "mode-"+roomMode;
+  // place banner
+  const pb=$("placeBanner");
+  if(roomMode==="place"){
+    const opts=batches.filter(b=>!b.archived).sort((a,b)=>b.batch_no-a.batch_no)
+      .map(b=>`<option value="${b.id}" ${b.id===placeBatchId?"selected":""}>#${b.batch_no} ${esc(b.name)} (${esc(b.species)})</option>`).join("");
+    pb.innerHTML=`<div class="note-banner" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <b>Placing:</b>
+      <select id="placeSel" style="max-width:340px;width:auto" onchange="placeBatchId=this.value">
+        <option value="">— pick a batch —</option>${opts}
+      </select>
+      <span style="font-size:13px">then tap empty slots to drop blocks.</span></div>`;
+    $("placeSel").value=placeBatchId||"";
+  } else if(roomMode==="harvest"){
+    pb.innerHTML=`<div class="note-banner">Tap a filled slot to log a harvest from it.</div>`;
+  } else if(roomMode==="remove"){
+    pb.innerHTML=`<div class="note-banner">Tap a filled slot to clear it (spent block). It stays in that batch's history.</div>`;
+  } else pb.innerHTML="";
+  // stats
+  const s=roomStats();
+  $("roomStats").innerHTML=`
+    <div class="stat"><div class="n">${s.occupied}/${s.totalSlots}</div><div class="l">Slots filled</div></div>
+    <div class="stat"><div class="n">${s.totalSlots?Math.round(s.occupied/s.totalSlots*100):0}%</div><div class="l">Occupancy</div></div>
+    <div class="stat"><div class="n">${fmtWeight(s.yld)}</div><div class="l">Yield on shelves</div></div>
+    <div class="stat"><div class="n">${s.avgAge}</div><div class="l">Avg days on shelf</div></div>`;
+  // species legend (only species currently placed)
+  const placedSpecies=[...new Set(placements.filter(p=>!p.removed_date).map(p=>batches.find(b=>b.id===p.batch_id)?.species).filter(Boolean))];
+  const legend = placedSpecies.length ? `<div class="room-legend">${placedSpecies.map(sp=>`<span><i style="background:${speciesColor(sp)}"></i>${esc(sp)}</span>`).join("")}</div>` : "";
+  // zones
+  wrap.innerHTML = legend + zones.slice().sort((a,b)=>a.sort_order-b.sort_order).map(zoneHTML).join("");
+}
+
+function zoneHTML(z){
+  const zb=baysOf(z);
+  return `<div class="zone">
+    <div class="zone-head"><h2>${esc(z.name)}</h2>${z.block_kg?`<span class="zmeta">${z.block_kg}kg blocks</span>`:""}<span class="zmeta">${zb.length} bay${zb.length===1?"":"s"}</span></div>
+    <div class="bays">${zb.map(bayHTML).join("") || `<div class="empty" style="flex:1">No bays — add some in Room setup.</div>`}</div>
+  </div>`;
+}
+
+function bayHTML(bay){
+  let rowsHTML="";
+  for(let r=0;r<bay.rows;r++){
+    const letter=rowLetter(r);
+    const perLine = bay.slots_per_line || bay.slots_per_row;
+    let slotsHTML="";
+    const lines = perLine<bay.slots_per_row;
+    const drawSlot = n => {
+      const code=slotCode(bay,letter,n);
+      const p=placementAt(code);
+      if(!p){ return `<div class="slot empty" onclick="slotTap('${bay.id}','${letter}',${n})">${letter}${n}</div>`; }
+      const b=batches.find(x=>x.id===p.batch_id);
+      const col=speciesColor(b?.species);
+      const days=daysBetween(p.placed_date,todayISO());
+      const y=placedYield(p);
+      const hasHarv=y>0;
+      return `<div class="slot full" style="background:${col}" title="${code} · ${esc(b?.name||"")}" onclick="slotTap('${bay.id}','${letter}',${n})">
+        ${hasHarv?`<span class="harv-dot"></span>`:""}
+        <span class="s-no">#${b?.batch_no??"?"}</span>
+        <span class="s-sp">${esc(b?.species||"")}</span>
+        <span class="s-d">${days}d</span>
+        ${hasHarv?`<span class="s-y">${fmtWeight(y)}</span>`:""}
+      </div>`;
+    };
+    if(lines){
+      let inner="";
+      for(let start=1;start<=bay.slots_per_row;start+=perLine){
+        let line="";
+        for(let n=start;n<Math.min(start+perLine,bay.slots_per_row+1);n++) line+=drawSlot(n);
+        inner+=`<div class="line">${line}</div>`;
+      }
+      slotsHTML=`<div class="slots wrap-line">${inner}</div>`;
+    } else {
+      for(let n=1;n<=bay.slots_per_row;n++) slotsHTML+=drawSlot(n);
+      slotsHTML=`<div class="slots">${slotsHTML}</div>`;
+    }
+    rowsHTML+=`<div class="shelf"><span class="rl">${letter}</span>${slotsHTML}</div>`;
+  }
+  return `<div class="bay"><div class="bay-head">Bay ${bay.bay_no}</div>${rowsHTML}</div>`;
+}
+
+function slotTap(bayId,letter,n){
+  const bay=bays.find(b=>b.id===bayId);
+  const code=slotCode(bay,letter,n);
+  const p=placementAt(code);
+  if(roomMode==="place"){
+    if(!placeBatchId){ alert("Pick a batch to place first (top of screen)."); return; }
+    if(p){ alert(`${code} is already filled. Switch to Remove mode to clear it.`); return; }
+    placeBlock(bayId,code,letter,n);
+  } else if(roomMode==="harvest"){
+    if(!p){ alert("That slot is empty — nothing to harvest."); return; }
+    openHarvest(p.batch_id, code);
+  } else if(roomMode==="remove"){
+    if(!p){ return; }
+    removePlacement(p);
+  } else {
+    // view mode → jump to the batch
+    if(p) openBatch(p.batch_id);
+  }
+}
+
+async function placeBlock(bayId,code,letter,n){
+  const ok=await write(db.from("mn_placements").insert({
+    bay_id:bayId, slot_code:code, row_letter:letter, slot_num:n,
+    batch_id:placeBatchId, placed_date:todayISO()
+  }),"Couldn't place block");
+  if(ok) renderRoom();
+}
+async function removePlacement(p){
+  const b=batches.find(x=>x.id===p.batch_id);
+  if(!confirm(`Clear ${p.slot_code} (${b?.name||"block"})? Its harvests stay in the batch history.`)) return;
+  const ok=await write(db.from("mn_placements").update({removed_date:todayISO()}).eq("id",p.id),"Couldn't clear slot");
+  if(ok) renderRoom();
+}
+
+/* ===== Room setup ===== */
+function renderSetup(){
+  const wrap=$("setupWrap");
+  if(!zones.length){ wrap.innerHTML=`<div class="empty">No zones yet. Add one below, or <button class="btn btn-sm" onclick="seedRoom()">auto-build my room</button>.</div>`; return; }
+  wrap.innerHTML = zones.slice().sort((a,b)=>a.sort_order-b.sort_order).map(z=>{
+    const zb=baysOf(z);
+    return `<div class="setup-zone">
+      <div class="zrow">
+        <div><label>Zone name</label><input id="z_name_${z.id}" value="${esc(z.name)}"></div>
+        <div><label>Block weight (kg)</label><input type="number" step="0.1" id="z_kg_${z.id}" value="${z.block_kg??""}" placeholder="e.g. 4.5"></div>
+        <button class="btn btn-sm" onclick="saveZone('${z.id}')">Save</button>
+        <button class="btn btn-sm btn-danger" onclick="deleteZone('${z.id}')">Delete zone</button>
+      </div>
+      ${zb.map(bay=>`
+        <div class="setup-bay">
+          <div style="flex:0 0 auto;min-width:auto"><label>Bay #</label><input type="number" id="b_no_${bay.id}" value="${bay.bay_no}" style="width:60px"></div>
+          <div><label>Rows (A–)</label><input type="number" id="b_rows_${bay.id}" value="${bay.rows}"></div>
+          <div><label>Slots / row</label><input type="number" id="b_slots_${bay.id}" value="${bay.slots_per_row}"></div>
+          <div><label>Wrap at (opt.)</label><input type="number" id="b_line_${bay.id}" value="${bay.slots_per_line??""}" placeholder="—"></div>
+          <button class="btn btn-sm" onclick="saveBay('${bay.id}')">Save</button>
+          <button class="btn btn-sm btn-danger" onclick="deleteBay('${bay.id}')">✕</button>
+        </div>`).join("")}
+      <button class="btn btn-sm" style="margin-top:6px" onclick="addBay('${z.id}')">＋ Add bay to ${esc(z.name)}</button>
+    </div>`;
+  }).join("");
+}
+async function addZone(){
+  const n=zones.length;
+  await write(db.from("mn_zones").insert({name:"New zone",sort_order:n}),"Couldn't add zone");
+  renderSetup();
+}
+async function saveZone(id){
+  await write(db.from("mn_zones").update({name:$("z_name_"+id).value.trim()||"Zone",block_kg:parseFloat($("z_kg_"+id).value)||null}).eq("id",id),"Couldn't save zone");
+  renderSetup();
+}
+async function deleteZone(id){
+  if(!confirm("Delete this zone and all its bays? Any placements in it will be cleared.")) return;
+  await write(db.from("mn_zones").delete().eq("id",id),"Couldn't delete zone");
+  renderSetup();
+}
+async function addBay(zoneId){
+  const maxNo=bays.reduce((m,b)=>Math.max(m,b.bay_no),0);
+  const n=baysOf(zones.find(z=>z.id===zoneId)).length;
+  await write(db.from("mn_bays").insert({zone_id:zoneId,bay_no:maxNo+1,rows:9,slots_per_row:6,sort_order:n}),"Couldn't add bay");
+  renderSetup();
+}
+async function saveBay(id){
+  const line=parseInt($("b_line_"+id).value,10);
+  await write(db.from("mn_bays").update({
+    bay_no:parseInt($("b_no_"+id).value,10)||1,
+    rows:Math.max(1,parseInt($("b_rows_"+id).value,10)||1),
+    slots_per_row:Math.max(1,parseInt($("b_slots_"+id).value,10)||1),
+    slots_per_line:line>0?line:null
+  }).eq("id",id),"Couldn't save bay");
+  renderSetup();
+}
+async function deleteBay(id){
+  if(!confirm("Delete this bay? Any placements in it will be cleared.")) return;
+  await write(db.from("mn_bays").delete().eq("id",id),"Couldn't delete bay");
+  renderSetup();
+}
+async function seedRoom(){
+  if(zones.length && !confirm("This adds the standard Markwood layout on top of what's there. Continue?")) return;
+  setSync("","Building room…");
+  try{
+    const mk = async (name,kg,order)=>{ const {data}=await db.from("mn_zones").insert({name,block_kg:kg,sort_order:order}).select().single(); return data; };
+    const w1=await mk("Wall 1",4.5,0), w2=await mk("Wall 2",4.5,1), c=await mk("Centre island",2.5,2);
+    const baysToAdd=[];
+    [w1,w2].forEach((z,zi)=>{ for(let i=0;i<3;i++) baysToAdd.push({zone_id:z.id,bay_no:zi*3+i+1,rows:9,slots_per_row:6,sort_order:i}); });
+    baysToAdd.push({zone_id:c.id,bay_no:7,rows:5,slots_per_row:24,slots_per_line:12,sort_order:0});
+    await db.from("mn_bays").insert(baysToAdd);
+    await loadAll(); renderSetup(); renderRoom();
+    setSync("ok","Synced");
+  }catch(e){ console.error(e); setSync("bad","Build failed"); alert("Couldn't build the room. Make sure you've run setup_room.sql first.\n\n"+e.message); }
+}
+
+
 const LBL_SIZES={munbyn:{w:216,h:120},s:{w:227,h:113},m:{w:302,h:151},l:{w:378,h:189}}; /* px at 96dpi */
 let labelCfg={size:"munbyn",copies:1,logo:null,logoScale:100,fields:{species:false,scientific:false,inoc:true,spawn:true,substrate:false}};
 
@@ -857,6 +1183,8 @@ function renderAll(){
   renderPipeline(); renderAnalytics(); renderCosts(); renderArchive();
   if($("view-batch").classList.contains("active")) renderBatch();
   if($("view-qr").classList.contains("active")) renderLabels();
+  if($("view-room").classList.contains("active")) renderRoom();
+  if($("view-roomsetup").classList.contains("active")) renderSetup();
 }
 loadCache(); renderAll();
 loadSettings();
