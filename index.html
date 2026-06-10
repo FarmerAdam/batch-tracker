@@ -212,11 +212,18 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
 .note-banner{background:#FBF6E8;border:1px solid #EADFBE;border-radius:8px;padding:10px 14px;font-size:13px;color:#6E5E2E;margin-bottom:14px}
 
 @media(max-width:860px){.pipeline{grid-template-columns:1fr}}
+#printArea{display:none}
+.print-label{display:flex;align-items:center;justify-content:center}
 @media print{
-  header,.toolbar,.no-print{display:none!important}
+  /* default: don't print the QR-codes sheet style stuff */
+  body.printing-labels *{visibility:hidden}
+  body.printing-labels #printArea, body.printing-labels #printArea *{visibility:visible}
+  body.printing-labels #printArea{display:block;position:absolute;left:0;top:0;width:100%}
+  body.printing-labels .print-label{page-break-after:always;break-after:page;width:100%;height:100vh;margin:0}
+  body.printing-labels .print-label:last-child{page-break-after:auto;break-after:auto}
+  body.printing-labels .label{border:1px solid #000;border-radius:1mm;box-shadow:none}
   body{background:#fff}
-  .qr-grid,.label-sheet{margin:0;gap:4mm}
-  .label{border:1px solid #000;border-radius:2mm}
+  .no-print{display:none!important}
 }
 </style>
 </head>
@@ -338,8 +345,6 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
 <section class="view" id="view-qr">
   <div class="toolbar">
     <h2 style="font-size:22px">Label builder</h2>
-    <div class="spacer"></div>
-    <button class="btn btn-primary no-print" onclick="window.print()">🖨 Print labels</button>
   </div>
   <div class="panel no-print">
     <div class="lbl-controls">
@@ -358,8 +363,6 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
         </select></div>
       <div><label>Logo size — <span id="lb_logoval">100%</span></label>
         <input type="range" id="lb_logosize" min="40" max="200" step="10" value="100" oninput="$('lb_logoval').textContent=this.value+'%'" onchange="lblChanged()" style="padding:0"></div>
-      <div><label>Copies per batch</label><input type="number" id="lb_copies" min="1" value="1" onchange="lblChanged()"></div>
-      <div><label>Filter batches</label><input id="lb_search" placeholder="Search name, species, #…" oninput="renderLabels()"></div>
     </div>
     <div class="lbl-checks">
       <label><input type="checkbox" id="lb_f_species" onchange="lblChanged()"> Species</label>
@@ -369,6 +372,20 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
       <label><input type="checkbox" id="lb_f_substrate" onchange="lblChanged()"> Substrate</label>
     </div>
   </div>
+
+  <div class="panel no-print">
+    <h3 style="font-size:15px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:10px">Print a batch's label</h3>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+      <div style="flex:1;min-width:220px"><label>Batch</label>
+        <select id="lb_batch" onchange="renderLabels()"></select></div>
+      <div style="width:120px"><label>How many</label>
+        <input type="number" id="lb_copies" min="1" value="1" onchange="renderLabels()"></div>
+      <button class="btn btn-primary" onclick="printLabels()">🖨 Print</button>
+    </div>
+    <div style="margin-top:8px;font-size:13px;color:var(--muted)">The printout puts one label per page, sized to your label stock — so the MUNBYN feeds them one at a time. Set printer margins to None and scale 100%.</div>
+  </div>
+
+  <div class="no-print" style="font-size:13px;color:var(--muted);margin:0 0 8px 2px">Preview</div>
   <div class="label-sheet" id="labelSheet"></div>
 </section>
 
@@ -445,7 +462,7 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
 const SUPABASE_URL = "https://jckfsvjodrrauwvpecks.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impja2ZzdmpvZHJyYXV3dnBlY2tzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5ODk4NTgsImV4cCI6MjA5NjU2NTg1OH0.ECtXTPKstyRW3Q_au5oucobZ1Axw44SDZXz368wNi4g";
 const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-const APP_VERSION = "v1.6 · size-aware moves · 10 Jun 2026";
+const APP_VERSION = "v1.7 · one-label-per-page printing · 10 Jun 2026";
 
 const STATES = {
   incubating:  {label:"Incubating",      color:"var(--st-incubating)"},
@@ -1199,7 +1216,6 @@ async function persistLabelCfg(){
 }
 function lblChanged(){
   labelCfg.size=$("lb_size").value;
-  labelCfg.copies=Math.max(1,parseInt($("lb_copies").value,10)||1);
   labelCfg.logoScale=parseInt($("lb_logosize").value,10)||100;
   for(const f of ["species","scientific","inoc","spawn","substrate"]) labelCfg.fields[f]=$("lb_f_"+f).checked;
   persistLabelCfg(); renderLabels();
@@ -1220,30 +1236,17 @@ function uploadLogo(e){
 }
 function removeLogo(){ labelCfg.logo=null; persistLabelCfg(); renderLabels(); }
 
-function renderLabels(){
-  $("lb_size").value=labelCfg.size; $("lb_copies").value=labelCfg.copies;
-  $("lb_logosize").value=labelCfg.logoScale; $("lb_logoval").textContent=labelCfg.logoScale+"%";
-  for(const f in labelCfg.fields){ const el=$("lb_f_"+f); if(el) el.checked=labelCfg.fields[f]; }
-  $("lb_logoprev").innerHTML = labelCfg.logo
-    ? `<img class="logo-prev" src="${labelCfg.logo}" alt="Your logo"><button class="btn btn-sm" onclick="removeLogo()">Remove</button>`
-    : `<span style="color:var(--muted);font-size:13px">No logo uploaded</span>`;
-
-  const q=($("lb_search").value||"").toLowerCase();
-  const list=batches.filter(b=>!b.archived)
-    .filter(b=>!q||[b.name,b.species,b.spawn_code,"#"+b.batch_no].join(" ").toLowerCase().includes(q))
-    .sort((a,b)=>a.batch_no-b.batch_no);
+function labelHTML(b){
   const sz=LBL_SIZES[labelCfg.size], big=sz.w>=300;
   const qrSize=Math.min(sz.h-16, Math.round(sz.w*0.42));
   const baseLogo=big?26:20, logoH=Math.round(baseLogo*(labelCfg.logoScale/100));
-  let out="";
-  for(const b of list){ for(let i=0;i<labelCfg.copies;i++){
-    const lines=[];
-    if(labelCfg.fields.species&&b.species) lines.push(esc(b.species));
-    if(labelCfg.fields.scientific&&b.scientific) lines.push(`<i>${esc(b.scientific)}</i>`);
-    if(labelCfg.fields.inoc) lines.push("Inoc "+fmtDate(b.inoc_date));
-    if(labelCfg.fields.spawn&&b.spawn_code) lines.push(`<span class="mono">${esc(b.spawn_code)}</span>`);
-    if(labelCfg.fields.substrate&&b.substrate) lines.push(esc(b.substrate));
-    out+=`<div class="label" style="width:${sz.w}px;height:${sz.h}px">
+  const lines=[];
+  if(labelCfg.fields.species&&b.species) lines.push(esc(b.species));
+  if(labelCfg.fields.scientific&&b.scientific) lines.push(`<i>${esc(b.scientific)}</i>`);
+  if(labelCfg.fields.inoc) lines.push("Inoc "+fmtDate(b.inoc_date));
+  if(labelCfg.fields.spawn&&b.spawn_code) lines.push(`<span class="mono">${esc(b.spawn_code)}</span>`);
+  if(labelCfg.fields.substrate&&b.substrate) lines.push(esc(b.substrate));
+  return `<div class="label" style="width:${sz.w}px;height:${sz.h}px">
       <div class="lmain">
         ${labelCfg.logo?`<img class="llogo" src="${labelCfg.logo}" alt="" style="max-height:${logoH}px;max-width:${Math.min(90,Math.round(60*labelCfg.logoScale/100))}%">`:""}
         <div class="lt" style="font-size:${big?11:9}px">
@@ -1251,13 +1254,58 @@ function renderLabels(){
           ${lines.map(l=>`<div class="ln">${l}</div>`).join("")}
         </div>
       </div>
-      <div class="lq" id="lqr_${b.id}_${i}"></div>
+      <div class="lq" data-qr="${b.batch_no}" data-qrsize="${qrSize}"></div>
     </div>`;
-  }}
-  $("labelSheet").innerHTML = out || `<div class="empty" style="width:100%">No active batches match.</div>`;
-  for(const b of list) for(let i=0;i<labelCfg.copies;i++)
-    new QRCode($("lqr_"+b.id+"_"+i),{text:batchURL(b),width:qrSize,height:qrSize,correctLevel:QRCode.CorrectLevel.M});
 }
+function renderLabels(){
+  $("lb_size").value=labelCfg.size;
+  $("lb_logosize").value=labelCfg.logoScale; $("lb_logoval").textContent=labelCfg.logoScale+"%";
+  for(const f in labelCfg.fields){ const el=$("lb_f_"+f); if(el) el.checked=labelCfg.fields[f]; }
+  $("lb_logoprev").innerHTML = labelCfg.logo
+    ? `<img class="logo-prev" src="${labelCfg.logo}" alt="Your logo"><button class="btn btn-sm" onclick="removeLogo()">Remove</button>`
+    : `<span style="color:var(--muted);font-size:13px">No logo uploaded</span>`;
+  // batch picker
+  const list=batches.filter(b=>!b.archived).sort((a,b)=>b.batch_no-a.batch_no);
+  const sel=$("lb_batch");
+  const prev=sel.value;
+  sel.innerHTML = list.length
+    ? list.map(b=>`<option value="${b.id}">#${b.batch_no} — ${esc(b.name)} (${esc(b.species)})</option>`).join("")
+    : `<option value="">No active batches</option>`;
+  if(prev && list.some(b=>b.id===prev)) sel.value=prev;
+  const chosen=batches.find(b=>b.id===sel.value)||list[0];
+  // preview: one label
+  if(chosen){
+    $("labelSheet").innerHTML=labelHTML(chosen);
+    renderLabelQRs($("labelSheet"));
+  } else {
+    $("labelSheet").innerHTML=`<div class="empty" style="width:100%">Create a batch first.</div>`;
+  }
+}
+function renderLabelQRs(root){
+  root.querySelectorAll(".lq").forEach(el=>{
+    const no=el.getAttribute("data-qr"), size=parseInt(el.getAttribute("data-qrsize"),10);
+    el.innerHTML="";
+    new QRCode(el,{text:location.origin+location.pathname+"?batch="+no,width:size,height:size,correctLevel:QRCode.CorrectLevel.M});
+  });
+}
+function printLabels(){
+  const b=batches.find(x=>x.id===$("lb_batch").value);
+  if(!b){ alert("Pick a batch to print."); return; }
+  const copies=Math.max(1,parseInt($("lb_copies").value,10)||1);
+  const sz=LBL_SIZES[labelCfg.size];
+  const wmm=(sz.w/96*25.4).toFixed(1), hmm=(sz.h/96*25.4).toFixed(1);
+  // build a dedicated print area: one label per page
+  let area=$("printArea");
+  if(!area){ area=document.createElement("div"); area.id="printArea"; document.body.appendChild(area); }
+  area.innerHTML = Array.from({length:copies}).map(()=>`<div class="print-label">${labelHTML(b)}</div>`).join("");
+  renderLabelQRs(area);
+  // set @page to the exact label size so each label is its own page
+  let st=$("printPageStyle"); if(!st){ st=document.createElement("style"); st.id="printPageStyle"; document.head.appendChild(st); }
+  st.textContent=`@media print{ @page{ size:${wmm}mm ${hmm}mm; margin:0; } }`;
+  document.body.classList.add("printing-labels");
+  setTimeout(()=>{ window.print(); }, 60);
+}
+window.addEventListener("afterprint",()=>{ document.body.classList.remove("printing-labels"); });
 
 /* ================= ANALYTICS ================= */
 function renderAnalytics(){
