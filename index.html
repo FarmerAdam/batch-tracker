@@ -41,6 +41,7 @@ nav button{padding:9px 14px;font-weight:600;font-size:14px;color:var(--muted);bo
 nav button.active{color:var(--ink);border-bottom-color:var(--accent)}
 
 main{max-width:1200px;margin:0 auto;padding:16px}
+.appver{text-align:center;font-size:12px;color:var(--muted);opacity:.7;padding:18px 0 8px}
 .view{display:none}.view.active{display:block}
 
 /* buttons */
@@ -113,6 +114,10 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
 
 /* forms & modals */
 .formwrap{max-width:640px;margin:0 auto}
+.blkline{display:flex;gap:8px;align-items:center;margin-bottom:8px}
+.blkline input{width:auto;flex:1}
+.blkline .x{font-size:13px;flex:none}
+.blkline .mult{color:var(--muted);flex:none}
 .row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .modal-bg{position:fixed;inset:0;background:rgba(42,36,27,.45);display:none;align-items:flex-end;justify-content:center;z-index:100;padding:0}
 .modal-bg.open{display:flex}
@@ -300,8 +305,13 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
     <datalist id="subList"></datalist>
     <div class="row2">
       <div><label>Spawn code</label><input id="f_spawn" placeholder="e.g. FV6924SO31"></div>
-      <div><label>Block count *</label><input type="number" id="f_blocks" min="1" placeholder="e.g. 40"></div>
+      <div></div>
     </div>
+    <label>Blocks *</label>
+    <div class="note-banner" style="margin-bottom:8px">Add a line per block size. Mixed sizes are fine — e.g. 40 × 4.5kg wall blocks plus 8 × 2.5kg home-kit blocks in the same inoculation.</div>
+    <div id="blockLines"></div>
+    <button class="btn btn-sm" style="margin-top:4px" onclick="addBlockLine()">＋ Add block size</button>
+    <div id="blockTotal" style="margin-top:8px;font-size:14px;color:var(--muted)"></div>
     <label>Notes</label><textarea id="f_notes" rows="3" placeholder="Tech, lot details, anything…"></textarea>
     <div style="display:flex;gap:10px;margin-top:20px">
       <button class="btn btn-primary" style="flex:1;justify-content:center" onclick="saveBatch()">Save batch</button>
@@ -313,7 +323,7 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
 <!-- ANALYTICS -->
 <section class="view" id="view-analytics">
   <div class="toolbar"><h2 style="font-size:22px">Species performance</h2><div class="spacer"></div></div>
-  <div class="note-banner">All-time figures across every batch (archived included). Cost/kg = (blocks inoculated × cost per block) ÷ total yield — so contaminated and failed blocks are counted as cost, which is the honest number for pricing.</div>
+  <div class="note-banner">All-time figures across every batch (archived included). Cost/kg counts every inoculated block — including contaminated and failed ones — as cost against the yield that actually came off, which is the honest number for pricing. Substrate cost scales with each block's real weight. Set figures in the Costs tab.</div>
   <div id="analyticsWrap"></div>
 </section>
 
@@ -367,6 +377,8 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
   <div class="toolbar"><h2 style="font-size:22px">Archived batches</h2></div>
   <div id="archiveWrap"></div>
 </section>
+
+<div class="appver" id="appVer"></div>
 
 </main>
 
@@ -432,6 +444,7 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
 const SUPABASE_URL = "https://jckfsvjodrrauwvpecks.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impja2ZzdmpvZHJyYXV3dnBlY2tzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5ODk4NTgsImV4cCI6MjA5NjU2NTg1OH0.ECtXTPKstyRW3Q_au5oucobZ1Axw44SDZXz368wNi4g";
 const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+const APP_VERSION = "v1.5 · block weights & true cost · 10 Jun 2026";
 
 const STATES = {
   incubating:  {label:"Incubating",      color:"var(--st-incubating)"},
@@ -482,8 +495,23 @@ const batchYield = b => harvests.filter(h=>h.batch_id===b.id).reduce((s,h)=>s+Nu
 const batchHarvestCount = b => harvests.filter(h=>h.batch_id===b.id).length;
 function batchColumn(b){ const c=batchCounts(b); if(c.fruiting>0) return "fruiting"; if(c.incubating>0) return "incubating"; return "complete"; }
 function firstMoveTo(b,state){ const ms=movements.filter(m=>m.batch_id===b.id&&m.to_state===state).sort((a,x)=>a.move_date<x.move_date?-1:1); return ms[0]?.move_date||null; }
-function costPerBlock(species){ const c=costs.find(x=>x.species.toLowerCase()===species.toLowerCase()); if(!c) return null; return Number(c.substrate_cost)+Number(c.spawn_cost)+Number(c.bag_cost)+Number(c.other_cost); }
-function salePrice(species){ const c=costs.find(x=>x.species.toLowerCase()===species.toLowerCase()); return c?.sale_price_kg?Number(c.sale_price_kg):null; }
+function costRow(species){ return costs.find(x=>x.species.toLowerCase()===species.toLowerCase()); }
+function salePrice(species){ const c=costRow(species); return c?.sale_price_kg?Number(c.sale_price_kg):null; }
+/* block-size aware helpers */
+function blockLines(b){ return Array.isArray(b.block_sizes)&&b.block_sizes.length ? b.block_sizes : null; }
+function totalBlocks(b){ const ls=blockLines(b); return ls ? ls.reduce((s,l)=>s+(Number(l.count)||0),0) : (b.blocks_total||0); }
+function substrateKg(b){ const ls=blockLines(b); return ls ? ls.reduce((s,l)=>s+(Number(l.count)||0)*(Number(l.kg)||0),0) : null; }
+/* cost: substrate is $/kg × actual kg; spawn/bag/other are per block */
+function perBlockExtras(species){ const c=costRow(species); if(!c) return 0; return Number(c.spawn_cost||0)+Number(c.bag_cost||0)+Number(c.other_cost||0); }
+function subPerKg(species){ const c=costRow(species); return c?Number(c.substrate_cost||0):0; }
+function batchCost(b){
+  const c=costRow(b.species); if(!c) return null;
+  const blocks=totalBlocks(b), kg=substrateKg(b);
+  const extras=perBlockExtras(b.species)*blocks;
+  const sub=(kg!=null)?subPerKg(b.species)*kg:0;
+  return {cost:extras+sub, hasWeight:kg!=null, kg};
+}
+function blockCostExample(species,kg){ return subPerKg(species)*kg + perBlockExtras(species); }
 
 /* ================= DATA ================= */
 function cache(){ try{ localStorage.setItem("mn_cache", JSON.stringify({batches,movements,harvests,costs,zones,bays,placements})); }catch(e){} }
@@ -591,8 +619,8 @@ function renderBatch(){
   const b=batches.find(x=>x.id===currentBatchId);
   if(!b){ showView("pipeline",false); return; }
   const c=batchCounts(b), y=batchYield(b);
-  const cpb=costPerBlock(b.species);
-  const cost=cpb!=null?cpb*b.blocks_total:null;
+  const bc=batchCost(b); const cost=bc?bc.cost:null;
+  const skg=substrateKg(b);
   const log=[
     ...movements.filter(m=>m.batch_id===b.id).map(m=>({type:"mv",date:m.move_date,id:m.id,created:m.created_at,
       text:`${m.count} block${m.count===1?"":"s"}: ${STATES[m.from_state]?.label||m.from_state} → ${STATES[m.to_state]?.label||m.to_state}${m.note?` — ${esc(m.note)}`:""}`})),
@@ -615,6 +643,7 @@ function renderBatch(){
       <div class="stat"><div class="n">${batchHarvestCount(b)}</div><div class="l">Harvests</div></div>
       <div class="stat"><div class="n">${daysBetween(b.inoc_date,todayISO())}</div><div class="l">Days since inoc</div></div>
       <div class="stat"><div class="n">${c.fruiting>0&&y>0?fmtWeight(y/ (c.fruiting+c.complete||1)):(c.complete>0&&y>0?fmtWeight(y/c.complete):"—")}</div><div class="l">Yield / fruited block</div></div>
+      <div class="stat"><div class="n">${skg!=null?(skg%1?skg.toFixed(1):skg)+" kg":"—"}</div><div class="l">Substrate</div></div>
       <div class="stat"><div class="n">${cost!=null?money(cost):"—"}</div><div class="l">Batch cost</div></div>
     </div>
 
@@ -655,6 +684,7 @@ function renderBatch(){
 }
 
 /* ================= FORM ================= */
+let blockLineState=[];
 function openForm(id){
   editingId=id||null;
   $("formTitle").textContent = id?"Edit batch":"New batch";
@@ -668,29 +698,54 @@ function openForm(id){
   $("f_substrate").value=b?.substrate||"";
   $("f_method").value=b?.method||"";
   $("f_spawn").value=b?.spawn_code||"";
-  $("f_blocks").value=b?.blocks_total||"";
   $("f_notes").value=b?.notes||"";
+  // seed block lines
+  if(b && blockLines(b)) blockLineState = blockLines(b).map(l=>({count:l.count,kg:l.kg}));
+  else if(b && b.blocks_total) blockLineState=[{count:b.blocks_total,kg:""}];
+  else blockLineState=[{count:"",kg:4.5}];
+  renderBlockLines();
   const species=[...new Set([...batches.map(x=>x.species),...costs.map(x=>x.species)].filter(Boolean))];
   $("speciesList").innerHTML=species.map(s=>`<option value="${esc(s)}">`).join("");
   const subs=[...new Set(batches.map(x=>x.substrate).filter(Boolean))];
   $("subList").innerHTML=subs.map(s=>`<option value="${esc(s)}">`).join("");
   showView("form");
 }
+function renderBlockLines(){
+  $("blockLines").innerHTML = blockLineState.map((l,i)=>`
+    <div class="blkline">
+      <input type="number" min="1" placeholder="count" value="${l.count}" oninput="blockLineState[${i}].count=this.value;updateBlockTotal()">
+      <span class="mult">×</span>
+      <input type="number" step="0.1" min="0" placeholder="kg" value="${l.kg}" oninput="blockLineState[${i}].kg=this.value;updateBlockTotal()">
+      <span class="mult">kg</span>
+      ${blockLineState.length>1?`<button class="btn btn-sm x" onclick="removeBlockLine(${i})">✕</button>`:""}
+    </div>`).join("");
+  updateBlockTotal();
+}
+function addBlockLine(){ blockLineState.push({count:"",kg:4.5}); renderBlockLines(); }
+function removeBlockLine(i){ blockLineState.splice(i,1); renderBlockLines(); }
+function updateBlockTotal(){
+  const blocks=blockLineState.reduce((s,l)=>s+(parseInt(l.count,10)||0),0);
+  const kg=blockLineState.reduce((s,l)=>s+(parseInt(l.count,10)||0)*(parseFloat(l.kg)||0),0);
+  $("blockTotal").innerHTML=`<b>${blocks}</b> block${blocks===1?"":"s"}${kg>0?` · <b>${kg%1?kg.toFixed(1):kg}</b> kg substrate total`:""}`;
+}
 function cancelForm(){ editingId ? openBatch(editingId) : showView("pipeline"); }
 async function saveBatch(){
   const name=$("f_name").value.trim(), species=$("f_species").value.trim();
-  const blocks=parseInt($("f_blocks").value,10);
-  if(!name||!species||!blocks||blocks<1){ alert("Batch name, species and block count are required."); return; }
+  const lines=blockLineState.map(l=>({count:parseInt(l.count,10)||0,kg:parseFloat(l.kg)||0})).filter(l=>l.count>0);
+  const blocks=lines.reduce((s,l)=>s+l.count,0);
+  if(!name||!species){ alert("Batch name and species are required."); return; }
+  if(!blocks){ alert("Add at least one block size with a count."); return; }
   const rec={
     batch_no:parseInt($("f_no").value,10)||1, name, species,
     scientific:$("f_sci").value.trim()||null, substrate:$("f_substrate").value.trim()||null,
     method:$("f_method").value.trim()||null, spawn_code:$("f_spawn").value.trim()||null,
-    inoc_date:$("f_date").value||todayISO(), blocks_total:blocks, notes:$("f_notes").value.trim()||null
+    inoc_date:$("f_date").value||todayISO(), blocks_total:blocks,
+    block_sizes:lines.length?lines:null, notes:$("f_notes").value.trim()||null
   };
   if(editingId){
     const b=batches.find(x=>x.id===editingId);
     const moved = b.blocks_total - batchCounts(b).incubating;
-    if(blocks<moved){ alert(`Can't set block count below ${moved} — that many blocks have already been moved out of incubation.`); return; }
+    if(blocks<moved){ alert(`Can't set total blocks below ${moved} — that many have already been moved out of incubation.`); return; }
     if(await write(db.from("mn_batches").update(rec).eq("id",editingId),"Couldn't update batch")) openBatch(editingId);
   }else{
     const {data,error}=await db.from("mn_batches").insert(rec).select().single();
@@ -1144,10 +1199,12 @@ function renderAnalytics(){
     (bySpecies[k]=bySpecies[k]||[]).push(b);
   }
   const rows=Object.entries(bySpecies).map(([sp,bs])=>{
-    let inoc=0,toFruit=0,contam=0,failed=0,culled=0,yld=0;
+    let inoc=0,toFruit=0,contam=0,failed=0,culled=0,yld=0,subKg=0,totalCost=0,costKnown=false,weightMissing=false;
     let fruitDays=[],completeDays=[];
     for(const b of bs){
-      inoc+=b.blocks_total; yld+=batchYield(b);
+      inoc+=totalBlocks(b); yld+=batchYield(b);
+      const sk=substrateKg(b); if(sk!=null) subKg+=sk; else if(totalBlocks(b)>0) weightMissing=true;
+      const bc=batchCost(b); if(bc){ totalCost+=bc.cost; costKnown=true; if(!bc.hasWeight) weightMissing=true; }
       for(const m of movements.filter(m=>m.batch_id===b.id)){
         if(m.to_state==="fruiting") toFruit+=m.count;
         if(m.to_state==="contaminated") contam+=m.count;
@@ -1160,34 +1217,40 @@ function renderAnalytics(){
     }
     const avg=a=>a.length?Math.round(a.reduce((s,x)=>s+x,0)/a.length):null;
     const wavg=a=>{const tw=a.reduce((s,x)=>s+x.w,0); return tw?Math.round(a.reduce((s,x)=>s+x.d*x.w,0)/tw):null;};
-    const cpb=costPerBlock(sp), sale=salePrice(sp);
-    const costKg=(cpb!=null&&yld>0)?(cpb*inoc)/(yld/1000):null;
+    const sale=salePrice(sp);
+    const costKg=(costKnown&&yld>0)?totalCost/(yld/1000):null;
     const margin=(costKg!=null&&sale!=null)?sale-costKg:null;
-    return {sp,batches:bs.length,inoc,toFruit,contam,failed,culled,yld,
+    const yPerKgSub=(subKg>0)?Math.round(yld/subKg):null;       // g yield per kg substrate
+    const bePct=(subKg>0)?Math.round((yld/1000)/subKg*100):null; // simple efficiency %
+    return {sp,batches:bs.length,inoc,toFruit,contam,failed,yld,subKg,
       pctFruit:inoc?Math.round(toFruit/inoc*100):0, pctContam:inoc?Math.round(contam/inoc*100):0,
       pctFailed:inoc?Math.round(failed/inoc*100):0,
       avgFruit:avg(fruitDays), avgComplete:wavg(completeDays),
-      gPerBlock:toFruit&&yld?Math.round(yld/toFruit):null, cpb, costKg, sale, margin};
+      gPerBlock:toFruit&&yld?Math.round(yld/toFruit):null, yPerKgSub, bePct,
+      costKg, sale, margin, weightMissing};
   }).sort((a,b)=>b.yld-a.yld);
 
   if(!rows.length){ $("analyticsWrap").innerHTML=`<div class="empty">No batches yet — analytics will build themselves as you log.</div>`; return; }
+  const anyMissing=rows.some(r=>r.weightMissing);
   $("analyticsWrap").innerHTML=`<div class="tablewrap"><table>
     <tr><th>Species</th><th>Batches</th><th>Blocks inoc</th><th>→ Fruiting</th><th>Contam</th><th>No colonise</th>
-        <th>Avg days → fruit</th><th>Avg days → done</th><th>Total yield</th><th>g / fruited block</th>
-        <th>Cost / block</th><th>Cost / kg</th><th>Sale $ / kg</th><th>Margin / kg</th></tr>
+        <th>Avg days → fruit</th><th>Avg days → done</th><th>Substrate</th><th>Total yield</th><th>g / fruited block</th><th>Yield/kg sub</th><th>Efficiency</th>
+        <th>Cost / kg</th><th>Sale $/kg</th><th>Margin / kg</th></tr>
     ${rows.map(r=>`<tr>
-      <td><b>${esc(r.sp)}</b></td><td>${r.batches}</td><td>${r.inoc}</td>
+      <td><b>${esc(r.sp)}</b>${r.weightMissing?' <span title="Some batches have no block weight set — cost/efficiency may be understated" style="color:var(--st-failed)">*</span>':""}</td><td>${r.batches}</td><td>${r.inoc}</td>
       <td>${r.toFruit} (${r.pctFruit}%)</td>
       <td>${r.contam?`${r.contam} (${r.pctContam}%)`:"0"}</td>
       <td>${r.failed?`${r.failed} (${r.pctFailed}%)`:"0"}</td>
       <td>${r.avgFruit??"—"}</td><td>${r.avgComplete??"—"}</td>
+      <td>${r.subKg>0?(r.subKg%1?r.subKg.toFixed(1):r.subKg)+" kg":"—"}</td>
       <td>${fmtWeight(r.yld)}</td><td>${r.gPerBlock??"—"}</td>
-      <td>${r.cpb!=null?money(r.cpb):"—"}</td>
+      <td>${r.yPerKgSub!=null?r.yPerKgSub+" g":"—"}</td>
+      <td>${r.bePct!=null?r.bePct+"%":"—"}</td>
       <td>${r.costKg!=null?money(r.costKg):"—"}</td>
       <td>${r.sale!=null?money(r.sale):"—"}</td>
       <td class="${r.margin==null?"":r.margin<0?"neg":"pos"}">${r.margin!=null?money(r.margin):"—"}</td>
     </tr>`).join("")}
-  </table></div>`;
+  </table></div>${anyMissing?`<div class="note-banner" style="margin-top:12px">* Some batches don't have block weights recorded, so their substrate cost isn't counted — those species' cost/kg and efficiency are understated until you edit the batch and add block sizes.</div>`:""}`;
 }
 
 /* ================= COSTS ================= */
@@ -1195,22 +1258,25 @@ function renderCosts(){
   const species=[...new Set([...batches.map(b=>b.species),...costs.map(c=>c.species)].filter(Boolean))].sort();
   if(!species.length){ $("costsWrap").innerHTML=`<div class="empty">Create a batch first — its species will show up here.</div>`; return; }
   $("costsWrap").innerHTML=`<div class="tablewrap"><table class="costs-table">
-    <tr><th>Species</th><th>Substrate $</th><th>Spawn $</th><th>Bag $</th><th>Other / power $</th><th>Total / block</th><th>Sale $ / kg</th><th></th></tr>
+    <tr><th>Species</th><th>Substrate $/kg</th><th>Spawn $/block</th><th>Bag $/block</th><th>Other $/block</th><th>4.5kg block</th><th>2.5kg block</th><th>Sale $/kg</th><th></th></tr>
     ${species.map(sp=>{
       const c=costs.find(x=>x.species.toLowerCase()===sp.toLowerCase())||{};
-      const tot=(Number(c.substrate_cost)||0)+(Number(c.spawn_cost)||0)+(Number(c.bag_cost)||0)+(Number(c.other_cost)||0);
       const sid=sp.replace(/[^a-z0-9]/gi,"_");
+      const extras=(Number(c.spawn_cost)||0)+(Number(c.bag_cost)||0)+(Number(c.other_cost)||0);
+      const subkg=Number(c.substrate_cost)||0;
       return `<tr>
         <td><b>${esc(sp)}</b></td>
         <td><input type="number" step="0.01" id="c_sub_${sid}" value="${c.substrate_cost??""}" placeholder="0"></td>
         <td><input type="number" step="0.01" id="c_spw_${sid}" value="${c.spawn_cost??""}" placeholder="0"></td>
         <td><input type="number" step="0.01" id="c_bag_${sid}" value="${c.bag_cost??""}" placeholder="0"></td>
         <td><input type="number" step="0.01" id="c_oth_${sid}" value="${c.other_cost??""}" placeholder="0"></td>
-        <td><b>${money(tot)}</b></td>
+        <td><b>${money(subkg*4.5+extras)}</b></td>
+        <td><b>${money(subkg*2.5+extras)}</b></td>
         <td><input type="number" step="0.5" id="c_sale_${sid}" value="${c.sale_price_kg??""}" placeholder="e.g. 45"></td>
         <td><button class="btn btn-sm btn-primary" onclick="saveCost('${esc(sp).replace(/'/g,"\\'")}','${sid}')">Save</button></td>
       </tr>`;}).join("")}
-  </table></div>`;
+  </table></div>
+  <div class="note-banner" style="margin-top:12px">Substrate is entered <b>per kg</b> so it scales with block size automatically. Spawn, bag and other (power, labour) are <b>per block</b>. The two block columns show what a 4.5kg and a 2.5kg block of each species costs you, built from those figures.</div>`;
 }
 async function saveCost(sp,sid){
   const num=id=>parseFloat($(id).value)||0;
@@ -1232,11 +1298,11 @@ function renderArchive(){
 function dl(name,text){ const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([text],{type:"text/csv"})); a.download=name; a.click(); }
 function csvCell(v){ v=(v??"").toString(); return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; }
 function exportCSV(){
-  const bh=["batch_no","name","species","scientific","substrate","method","spawn_code","inoc_date","blocks_total","incubating","fruiting","complete","contaminated","failed","culled","total_yield_g","harvest_count","archived","notes"];
-  const brows=batches.map(b=>{const c=batchCounts(b);return [b.batch_no,b.name,b.species,b.scientific,b.substrate,b.method,b.spawn_code,b.inoc_date,b.blocks_total,c.incubating,c.fruiting,c.complete,c.contaminated,c.failed,c.culled,batchYield(b),batchHarvestCount(b),b.archived,b.notes].map(csvCell).join(",");});
+  const bh=["batch_no","name","species","scientific","substrate","method","spawn_code","inoc_date","blocks_total","substrate_kg","block_sizes","incubating","fruiting","complete","contaminated","failed","culled","total_yield_g","harvest_count","batch_cost","archived","notes"];
+  const brows=batches.map(b=>{const c=batchCounts(b);const sk=substrateKg(b);const bc=batchCost(b);const bsz=blockLines(b)?blockLines(b).map(l=>`${l.count}x${l.kg}kg`).join(" + "):"";return [b.batch_no,b.name,b.species,b.scientific,b.substrate,b.method,b.spawn_code,b.inoc_date,totalBlocks(b),sk??"",bsz,c.incubating,c.fruiting,c.complete,c.contaminated,c.failed,c.culled,batchYield(b),batchHarvestCount(b),bc?bc.cost.toFixed(2):"",b.archived,b.notes].map(csvCell).join(",");});
   dl("batches.csv",[bh.join(","),...brows].join("\n"));
-  const hh=["batch_no","batch_name","species","harvest_date","weight_g","flush","note"];
-  const hrows=harvests.map(h=>{const b=batches.find(x=>x.id===h.batch_id)||{};return [b.batch_no,b.name,b.species,h.harvest_date,h.weight_g,h.flush,h.note].map(csvCell).join(",");});
+  const hh=["batch_no","batch_name","species","harvest_date","weight_g","flush","slot","note"];
+  const hrows=harvests.map(h=>{const b=batches.find(x=>x.id===h.batch_id)||{};return [b.batch_no,b.name,b.species,h.harvest_date,h.weight_g,h.flush,h.slot_code||"",h.note].map(csvCell).join(",");});
   setTimeout(()=>dl("harvests.csv",[hh.join(","),...hrows].join("\n")),400);
 }
 
@@ -1249,6 +1315,7 @@ function renderAll(){
   if($("view-roomsetup").classList.contains("active")) renderSetup();
 }
 loadCache(); renderAll();
+{ const v=$("appVer"); if(v) v.textContent=APP_VERSION; }
 loadSettings();
 loadAll().then(()=>routeFromURL(false));
 </script>
