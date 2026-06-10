@@ -391,6 +391,7 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
       <div><label>From</label><select id="mv_from" onchange="moveFromChanged()"></select></div>
       <div><label>To</label><select id="mv_to"></select></div>
     </div>
+    <div id="mv_sizeWrap" style="display:none"><label>Block size</label><select id="mv_size" onchange="moveSizeChanged()"></select></div>
     <div class="row2">
       <div><label>How many</label><input type="number" id="mv_count" min="1"></div>
       <div><label>Date</label><input type="date" id="mv_date"></div>
@@ -444,7 +445,7 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
 const SUPABASE_URL = "https://jckfsvjodrrauwvpecks.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impja2ZzdmpvZHJyYXV3dnBlY2tzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5ODk4NTgsImV4cCI6MjA5NjU2NTg1OH0.ECtXTPKstyRW3Q_au5oucobZ1Axw44SDZXz368wNi4g";
 const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-const APP_VERSION = "v1.5 · block weights & true cost · 10 Jun 2026";
+const APP_VERSION = "v1.6 · size-aware moves · 10 Jun 2026";
 
 const STATES = {
   incubating:  {label:"Incubating",      color:"var(--st-incubating)"},
@@ -491,6 +492,35 @@ function batchCounts(b){
   }
   return c;
 }
+/* counts per state, broken down by block size (kg). Returns {state:{kg:count,...}} */
+function batchCountsBySize(b){
+  const ls=blockLines(b);
+  const out={incubating:{},fruiting:{},complete:{},contaminated:{},failed:{},culled:{}};
+  if(ls){ for(const l of ls){ const k=Number(l.kg)||0; out.incubating[k]=(out.incubating[k]||0)+(Number(l.count)||0); } }
+  else { out.incubating[0]=b.blocks_total; } // single unknown size
+  for(const m of movements.filter(m=>m.batch_id===b.id)){
+    const k = (m.kg!=null) ? Number(m.kg) : null;
+    const apply=(state,sign)=>{
+      if(!out[state]) return;
+      if(k!=null){ out[state][k]=(out[state][k]||0)+sign*m.count; }
+      else {
+        // legacy/no-size movement: take from/give to the largest available bucket
+        const keys=Object.keys(out[state]); const kk=keys.length?keys[0]:0;
+        out[state][kk]=(out[state][kk]||0)+sign*m.count;
+      }
+    };
+    apply(m.from_state,-1); apply(m.to_state,+1);
+  }
+  // strip zero/negative
+  for(const s in out){ for(const k in out[s]){ if(out[s][k]<=0) delete out[s][k]; } }
+  return out;
+}
+/* sizes present in a given state, as [{kg,count}] */
+function sizesInState(b,state){
+  const bs=batchCountsBySize(b)[state]||{};
+  return Object.entries(bs).map(([kg,count])=>({kg:Number(kg),count})).filter(x=>x.count>0).sort((a,b)=>b.kg-a.kg);
+}
+function batchHasMultipleSizes(b){ const ls=blockLines(b); return ls && ls.length>1; }
 const batchYield = b => harvests.filter(h=>h.batch_id===b.id).reduce((s,h)=>s+Number(h.weight_g),0);
 const batchHarvestCount = b => harvests.filter(h=>h.batch_id===b.id).length;
 function batchColumn(b){ const c=batchCounts(b); if(c.fruiting>0) return "fruiting"; if(c.incubating>0) return "incubating"; return "complete"; }
@@ -623,7 +653,7 @@ function renderBatch(){
   const skg=substrateKg(b);
   const log=[
     ...movements.filter(m=>m.batch_id===b.id).map(m=>({type:"mv",date:m.move_date,id:m.id,created:m.created_at,
-      text:`${m.count} block${m.count===1?"":"s"}: ${STATES[m.from_state]?.label||m.from_state} → ${STATES[m.to_state]?.label||m.to_state}${m.note?` — ${esc(m.note)}`:""}`})),
+      text:`${m.count}${m.kg?` × ${m.kg}kg`:""} block${m.count===1?"":"s"}: ${STATES[m.from_state]?.label||m.from_state} → ${STATES[m.to_state]?.label||m.to_state}${m.note?` — ${esc(m.note)}`:""}`})),
     ...harvests.filter(h=>h.batch_id===b.id).map(h=>({type:"hv",date:h.harvest_date,id:h.id,created:h.created_at,
       text:`${fmtWeight(Number(h.weight_g))}${h.flush?` · flush ${h.flush}`:""}${h.note?` — ${esc(h.note)}`:""}`}))
   ].sort((a,x)=> a.date===x.date ? (a.created<x.created?1:-1) : (a.date<x.date?1:-1));
@@ -785,22 +815,60 @@ function openMove(batchId){
   openModal("moveModal");
 }
 function moveFromChanged(){
-  const b=batches.find(x=>x.id===modalBatchId), c=batchCounts(b);
+  const b=batches.find(x=>x.id===modalBatchId);
   const f=$("mv_from").value;
   $("mv_to").innerHTML=STATE_ORDER.filter(s=>s!==f).map(s=>`<option value="${s}">${STATES[s].label}</option>`).join("");
   if(f==="incubating") $("mv_to").value="fruiting";
   if(f==="fruiting") $("mv_to").value="complete";
-  $("mv_count").value=c[f]; $("mv_count").max=c[f];
+  // size dropdown only if this batch has multiple sizes AND >1 size sits in the 'from' state
+  const sizes=sizesInState(b,f);
+  if(batchHasMultipleSizes(b) && sizes.length>1){
+    $("mv_sizeWrap").style.display="";
+    $("mv_size").innerHTML=`<option value="all">All sizes (${sizes.reduce((s,x)=>s+x.count,0)})</option>`+
+      sizes.map(x=>`<option value="${x.kg}">${x.kg}kg (${x.count} available)</option>`).join("");
+    $("mv_size").value=sizes[0].kg;
+  } else {
+    $("mv_sizeWrap").style.display="none";
+    $("mv_size").innerHTML = sizes.length===1 ? `<option value="${sizes[0].kg}">${sizes[0].kg}</option>` : `<option value="all">all</option>`;
+  }
+  moveSizeChanged();
+}
+function moveSizeChanged(){
+  const b=batches.find(x=>x.id===modalBatchId), f=$("mv_from").value;
+  const sizes=sizesInState(b,f);
+  const sv=$("mv_size").value;
+  let avail;
+  if(sv==="all"||sizes.length===0) avail=sizes.reduce((s,x)=>s+x.count,0)||batchCounts(b)[f];
+  else avail=(sizes.find(x=>x.kg===Number(sv))||{}).count||0;
+  $("mv_count").value=avail; $("mv_count").max=avail;
 }
 async function saveMove(){
-  const b=batches.find(x=>x.id===modalBatchId), c=batchCounts(b);
+  const b=batches.find(x=>x.id===modalBatchId);
   const from=$("mv_from").value, to=$("mv_to").value, count=parseInt($("mv_count").value,10);
   if(!count||count<1){ alert("Enter how many blocks to move."); return; }
-  if(count>c[from]){ alert(`Only ${c[from]} blocks are in ${STATES[from].label}.`); return; }
-  const ok=await write(db.from("mn_movements").insert({
-    batch_id:modalBatchId, move_date:$("mv_date").value||todayISO(),
-    from_state:from, to_state:to, count, note:$("mv_note").value.trim()||null
-  }),"Couldn't save movement");
+  const sizes=sizesInState(b,from);
+  const sv = $("mv_sizeWrap").style.display==="none" ? (sizes.length===1?String(sizes[0].kg):"all") : $("mv_size").value;
+  // build one or more movement rows
+  let rows=[];
+  if(sv==="all"){
+    if(sizes.length<=1){
+      const kg = sizes.length===1 ? sizes[0].kg : null;
+      if(count>(sizes[0]?.count ?? batchCounts(b)[from])){ alert(`Only ${sizes[0]?.count ?? batchCounts(b)[from]} in ${STATES[from].label}.`); return; }
+      rows.push({kg, count});
+    } else {
+      // distribute across sizes, largest first
+      let rem=count;
+      for(const s of sizes){ if(rem<=0) break; const take=Math.min(rem,s.count); rows.push({kg:s.kg,count:take}); rem-=take; }
+      if(rem>0){ alert(`Only ${sizes.reduce((a,x)=>a+x.count,0)} blocks available in ${STATES[from].label}.`); return; }
+    }
+  } else {
+    const kg=Number(sv); const av=(sizes.find(x=>x.kg===kg)||{}).count||0;
+    if(count>av){ alert(`Only ${av} × ${kg}kg blocks in ${STATES[from].label}.`); return; }
+    rows.push({kg,count});
+  }
+  const note=$("mv_note").value.trim()||null;
+  const payload=rows.map(r=>({batch_id:modalBatchId, move_date:$("mv_date").value||todayISO(), from_state:from, to_state:to, count:r.count, kg:r.kg, note}));
+  const ok=await write(db.from("mn_movements").insert(payload),"Couldn't save movement");
   if(ok){ closeModal("moveModal"); renderBatch(); }
 }
 
