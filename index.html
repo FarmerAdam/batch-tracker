@@ -6,7 +6,7 @@
 <title>Markwood Batch Tracker</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Zilla+Slab:wght@600;700&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <style>
@@ -15,17 +15,18 @@
   --accent:#3E5C42; --accent-ink:#FFFFFF; --danger:#B5402E;
   --st-incubating:#C9C2B4; --st-fruiting:#4D8FD1; --st-complete:#5E9E54;
   --st-contaminated:#C2503C; --st-failed:#D98E3A; --st-culled:#6E665A;
+  --slot-empty-bg:#FBFAF6; --slot-empty-ink:#C4BCAC; --slot-place-bg:#EFF3EF;
   --radius:10px; --shadow:0 1px 3px rgba(42,36,27,.08);
 }
 [data-theme="dark"]{
   --bg:#1B1916; --card:#262320; --ink:#EDE8DF; --muted:#A39A8B; --line:#3A352F;
   --accent-ink:#FFFFFF; --danger:#E07A66;
   --st-incubating:#7C766A; --shadow:0 1px 3px rgba(0,0,0,.4);
+  --slot-empty-bg:#211F1B; --slot-empty-ink:#6B6458; --slot-place-bg:#2A2A22;
 }
 [data-theme="dark"] input,[data-theme="dark"] select,[data-theme="dark"] textarea{background:#1F1D1A;border-color:#3A352F}
 [data-theme="dark"] .note-banner{background:#2B2820;border-color:#423D2C;color:#C9BE9C}
-[data-theme="dark"] .label,[data-theme="dark"] .qr-card,[data-theme="dark"] .slot.empty{background:#fff}
-[data-theme="dark"] .slot.empty{color:#888}
+[data-theme="dark"] .label,[data-theme="dark"] .qr-card{background:#fff}
 [data-theme="dark"] .label .nm,[data-theme="dark"] .label .ln{color:#1d1d1d}
 [data-theme="dark"] th{background:#211F1B}
 [data-theme="dark"] .tag.mv{background:#22303f;color:#9cc4e8}
@@ -33,7 +34,7 @@
 *{box-sizing:border-box;margin:0;padding:0}
 html{-webkit-text-size-adjust:100%}
 body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink);font-size:15px;line-height:1.45}
-h1,h2,h3{font-family:"Zilla Slab",serif;font-weight:700}
+h1,h2,h3{font-family:"Montserrat",sans-serif;font-weight:700}
 .mono{font-family:"IBM Plex Mono",monospace;font-weight:500}
 button{font:inherit;cursor:pointer;border:none;background:none;color:inherit}
 input,select,textarea{font:inherit;color:inherit;width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:#fff}
@@ -114,7 +115,7 @@ main{max-width:1200px;margin:0 auto;padding:16px}
 .info-grid .v{font-size:15px}
 .statline{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px;margin-bottom:14px}
 .stat{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:12px;text-align:center}
-.stat .n{font-family:"Zilla Slab",serif;font-weight:700;font-size:22px}
+.stat .n{font-family:"Montserrat",sans-serif;font-weight:700;font-size:22px}
 .stat .l{font-size:12px;color:var(--muted)}
 .log{list-style:none}
 .log li{display:flex;gap:12px;padding:10px 0;border-bottom:1px solid var(--line);font-size:14px}
@@ -170,7 +171,7 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
 .zone-head .zmeta{font-size:12px;color:var(--muted)}
 .bays{display:flex;gap:14px;align-items:flex-start}
 .bay{flex:1 1 0;min-width:0;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:10px}
-.bay-head{font-family:"Zilla Slab",serif;font-weight:700;font-size:15px;margin-bottom:8px;text-align:center}
+.bay-head{font-family:"Montserrat",sans-serif;font-weight:700;font-size:15px;margin-bottom:8px;text-align:center}
 .bay.centre{flex:0 1 auto;max-width:100%}
 .shelf{display:flex;align-items:stretch;gap:5px;margin-bottom:4px}
 .shelf .rl{font-family:"IBM Plex Mono",monospace;font-weight:600;font-size:11px;color:var(--muted);width:14px;flex:none;display:flex;align-items:center;justify-content:center}
@@ -178,17 +179,17 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
 .slots.wrap-line{flex-direction:column}
 .line{display:flex;gap:4px}
 .line .slot{flex:1 1 0;max-width:52px}
-.slot{flex:1 1 0;min-width:0;aspect-ratio:1;max-width:58px;border-radius:6px;border:1.5px dashed var(--line);background:#FBFAF6;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;font-size:9px;line-height:1.05;text-align:center;padding:1px;overflow:hidden;position:relative;transition:transform .05s}
+.slot{flex:1 1 0;min-width:0;aspect-ratio:1;max-width:58px;border-radius:6px;border:1.5px dashed var(--line);background:var(--slot-empty-bg);display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;font-size:9px;line-height:1.05;text-align:center;padding:1px;overflow:hidden;position:relative;transition:transform .05s}
 .slot:hover{border-style:solid}
 .slot:active{transform:scale(.92)}
-.slot.empty{color:#C4BCAC;font-family:"IBM Plex Mono",monospace}
+.slot.empty{color:var(--slot-empty-ink);font-family:"IBM Plex Mono",monospace}
 .slot.full{border-style:solid;color:#fff;border-color:transparent}
 .slot .s-no{font-weight:700;font-size:11px}
 .slot .s-sp{font-size:8px;opacity:.95;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .slot .s-d{font-size:8px;opacity:.9}
 .slot .s-y{font-size:8px;font-weight:700}
 .slot .harv-dot{position:absolute;top:3px;right:3px;width:6px;height:6px;border-radius:50%;background:#fff;box-shadow:0 0 0 1.5px rgba(0,0,0,.15)}
-.mode-place .slot.empty{border-color:var(--accent);background:#EFF3EF}
+.mode-place .slot.empty{border-color:var(--accent);background:var(--slot-place-bg)}
 .mode-harvest .slot.full{box-shadow:inset 0 0 0 2px rgba(255,255,255,.5)}
 .slot.sel{outline:3px solid var(--danger);outline-offset:1px}
 .slot.sel::after{content:"✓";position:absolute;top:2px;left:3px;font-size:10px;font-weight:700;color:#fff;text-shadow:0 0 2px rgba(0,0,0,.4)}
@@ -230,7 +231,7 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
 .label .lmain{flex:1;min-width:0;display:flex;flex-direction:column;justify-content:center;gap:3px;text-align:left}
 .label .llogo{flex:none;object-fit:contain;align-self:flex-start}
 .label .lt{min-width:0;display:flex;flex-direction:column;gap:1px}
-.label .nm{font-family:"Zilla Slab",serif;font-weight:700;line-height:1.1;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.label .nm{font-family:"Montserrat",sans-serif;font-weight:700;line-height:1.1;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .label .ln{color:#333;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .empty{border:1.5px dashed var(--line);border-radius:var(--radius);padding:40px 20px;text-align:center;color:var(--muted)}
 .note-banner{background:#FBF6E8;border:1px solid #EADFBE;border-radius:8px;padding:10px 14px;font-size:13px;color:#6E5E2E;margin-bottom:14px}
@@ -526,10 +527,11 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
 const SUPABASE_URL = "https://jckfsvjodrrauwvpecks.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impja2ZzdmpvZHJyYXV3dnBlY2tzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5ODk4NTgsImV4cCI6MjA5NjU2NTg1OH0.ECtXTPKstyRW3Q_au5oucobZ1Axw44SDZXz368wNi4g";
 const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-const APP_VERSION = "v1.8 · themes & branding · 10 Jun 2026";
+const APP_VERSION = "v2.0 · brand font (Montserrat) · 10 Jun 2026";
 
 /* ================= APPEARANCE (per-user) + BRANDING (shared) ================= */
 const ACCENTS=[
+  {name:"Markwood brown",v:"#4A2017"},{name:"Markwood maroon",v:"#A8331D"},
   {name:"Forest",v:"#3E5C42"},{name:"Teal",v:"#2F7E7E"},{name:"Ocean",v:"#2F6BAB"},
   {name:"Plum",v:"#7A4E86"},{name:"Berry",v:"#9E3B63"},{name:"Rust",v:"#B5582E"},
   {name:"Amber",v:"#B9852B"},{name:"Slate",v:"#4A5568"}
