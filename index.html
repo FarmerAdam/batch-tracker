@@ -161,6 +161,15 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
 .slot .harv-dot{position:absolute;top:3px;right:3px;width:6px;height:6px;border-radius:50%;background:#fff;box-shadow:0 0 0 1.5px rgba(0,0,0,.15)}
 .mode-place .slot.empty{border-color:var(--accent);background:#EFF3EF}
 .mode-harvest .slot.full{box-shadow:inset 0 0 0 2px rgba(255,255,255,.5)}
+.slot.sel{outline:3px solid var(--danger);outline-offset:1px}
+.slot.sel::after{content:"✓";position:absolute;top:2px;left:3px;font-size:10px;font-weight:700;color:#fff;text-shadow:0 0 2px rgba(0,0,0,.4)}
+.rl-btn{font-family:"IBM Plex Mono",monospace;font-weight:700;font-size:11px;color:var(--danger);width:14px;flex:none;border:1px solid #E5C5BE;border-radius:4px;background:#fff;cursor:pointer}
+.rl-btn:hover{background:#FBEEEA}
+.bay-sel{font-size:11px;font-weight:600;color:var(--danger);border:1px solid #E5C5BE;border-radius:5px;padding:2px 7px;margin-left:6px;background:#fff;vertical-align:middle}
+.bay-sel:hover{background:#FBEEEA}
+.remove-bar{display:none;position:sticky;bottom:14px;z-index:60;margin:16px auto 0;max-width:420px;background:var(--ink);color:#fff;border-radius:99px;padding:10px 12px 10px 20px;align-items:center;justify-content:space-between;gap:10px;box-shadow:0 6px 20px rgba(42,36,27,.3)}
+.remove-bar.show{display:flex}
+.remove-bar .btn{box-shadow:none}
 .room-legend{display:flex;flex-wrap:wrap;gap:12px;font-size:13px;color:var(--muted);margin:4px 0 16px}
 .room-legend span{display:inline-flex;align-items:center;gap:5px}
 .room-legend i{width:12px;height:12px;border-radius:3px;display:inline-block}
@@ -255,6 +264,7 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
   <div id="placeBanner"></div>
   <div id="roomStats" class="statline"></div>
   <div id="roomWrap"></div>
+  <div id="removeBar" class="remove-bar"></div>
 </section>
 
 <!-- ROOM SETUP -->
@@ -437,6 +447,7 @@ let batches=[], movements=[], harvests=[], costs=[];
 let zones=[], bays=[], placements=[];
 let currentBatchId=null, editingId=null;
 let roomMode="view", placeBatchId=null;
+let removeSel=new Set();
 
 /* deterministic colour per species */
 const SPECIES_PALETTE=["#4D8FD1","#5E9E54","#C2503C","#D98E3A","#8E6FB8","#3FA6A6","#C26B9E","#7A8B3C","#B5793A","#5C7CB0"];
@@ -785,6 +796,7 @@ document.querySelectorAll("#roomModes button").forEach(b=>b.onclick=()=>{
   roomMode=b.dataset.mode;
   document.querySelectorAll("#roomModes button").forEach(x=>x.classList.toggle("active",x===b));
   if(roomMode!=="place") placeBatchId=null;
+  removeSel.clear();
   renderRoom();
 });
 
@@ -821,7 +833,7 @@ function renderRoom(){
   } else if(roomMode==="harvest"){
     pb.innerHTML=`<div class="note-banner">Tap a filled slot to log a harvest from it.</div>`;
   } else if(roomMode==="remove"){
-    pb.innerHTML=`<div class="note-banner">Tap a filled slot to clear it (spent block). It stays in that batch's history.</div>`;
+    pb.innerHTML=`<div class="note-banner">Tap blocks to select — or tap a <b>row letter</b> for the whole shelf, or <b>Select all</b> on a bay. Then hit Remove. Harvests stay in batch history.</div>`;
   } else pb.innerHTML="";
   // stats
   const s=roomStats();
@@ -835,6 +847,7 @@ function renderRoom(){
   const legend = placedSpecies.length ? `<div class="room-legend">${placedSpecies.map(sp=>`<span><i style="background:${speciesColor(sp)}"></i>${esc(sp)}</span>`).join("")}</div>` : "";
   // zones
   wrap.innerHTML = legend + zones.slice().sort((a,b)=>a.sort_order-b.sort_order).map(zoneHTML).join("");
+  updateRemoveBar();
 }
 
 function zoneHTML(z){
@@ -846,6 +859,7 @@ function zoneHTML(z){
 }
 
 function bayHTML(bay){
+  const rm = roomMode==="remove";
   let rowsHTML="";
   for(let r=0;r<bay.rows;r++){
     const letter=rowLetter(r);
@@ -861,7 +875,8 @@ function bayHTML(bay){
       const days=daysBetween(p.placed_date,todayISO());
       const y=placedYield(p);
       const hasHarv=y>0;
-      return `<div class="slot full" style="background:${col}" title="${code} · ${esc(b?.name||"")}" onclick="slotTap('${bay.id}','${letter}',${n})">
+      const sel=removeSel.has(code)?" sel":"";
+      return `<div class="slot full${sel}" id="sl_${code}" style="background:${col}" title="${code} · ${esc(b?.name||"")}" onclick="slotTap('${bay.id}','${letter}',${n})">
         ${hasHarv?`<span class="harv-dot"></span>`:""}
         <span class="s-no">#${b?.batch_no??"?"}</span>
         <span class="s-sp">${esc(b?.species||"")}</span>
@@ -881,9 +896,13 @@ function bayHTML(bay){
       for(let n=1;n<=bay.slots_per_row;n++) slotsHTML+=drawSlot(n);
       slotsHTML=`<div class="slots">${slotsHTML}</div>`;
     }
-    rowsHTML+=`<div class="shelf"><span class="rl">${letter}</span>${slotsHTML}</div>`;
+    const rl = rm ? `<button class="rl rl-btn" onclick="selectRow('${bay.id}','${letter}')" title="Select shelf ${letter}">${letter}</button>` : `<span class="rl">${letter}</span>`;
+    rowsHTML+=`<div class="shelf">${rl}${slotsHTML}</div>`;
   }
-  return `<div class="bay${bay.slots_per_line && bay.slots_per_line<bay.slots_per_row ? " centre":""}"><div class="bay-head">Bay ${bay.bay_no}</div>${rowsHTML}</div>`;
+  const head = rm
+    ? `<div class="bay-head">Bay ${bay.bay_no} <button class="bay-sel" onclick="selectBay('${bay.id}')">Select all</button></div>`
+    : `<div class="bay-head">Bay ${bay.bay_no}</div>`;
+  return `<div class="bay${bay.slots_per_line && bay.slots_per_line<bay.slots_per_row ? " centre":""}">${head}${rowsHTML}</div>`;
 }
 
 function slotTap(bayId,letter,n){
@@ -899,7 +918,7 @@ function slotTap(bayId,letter,n){
     openHarvest(p.batch_id, code);
   } else if(roomMode==="remove"){
     if(!p){ return; }
-    removePlacement(p);
+    toggleSel(code);
   } else {
     // view mode → jump to the batch
     if(p) openBatch(p.batch_id);
@@ -913,11 +932,47 @@ async function placeBlock(bayId,code,letter,n){
   }),"Couldn't place block");
   if(ok) renderRoom();
 }
-async function removePlacement(p){
-  const b=batches.find(x=>x.id===p.batch_id);
-  if(!confirm(`Clear ${p.slot_code} (${b?.name||"block"})? Its harvests stay in the batch history.`)) return;
-  const ok=await write(db.from("mn_placements").update({removed_date:todayISO()}).eq("id",p.id),"Couldn't clear slot");
-  if(ok) renderRoom();
+function toggleSel(code){
+  if(removeSel.has(code)) removeSel.delete(code); else removeSel.add(code);
+  const el=$("sl_"+code); if(el) el.classList.toggle("sel",removeSel.has(code));
+  updateRemoveBar();
+}
+function selectRow(bayId,letter){
+  const bay=bays.find(b=>b.id===bayId);
+  const codes=[]; for(let n=1;n<=bay.slots_per_row;n++){ const c=slotCode(bay,letter,n); if(placementAt(c)) codes.push(c); }
+  applySel(codes);
+}
+function selectBay(bayId){
+  const bay=bays.find(b=>b.id===bayId);
+  const codes=[];
+  for(let r=0;r<bay.rows;r++){ const L=rowLetter(r); for(let n=1;n<=bay.slots_per_row;n++){ const c=slotCode(bay,L,n); if(placementAt(c)) codes.push(c); } }
+  applySel(codes);
+}
+function applySel(codes){
+  // if all already selected, deselect them (toggle); else select all
+  const allSel=codes.length>0 && codes.every(c=>removeSel.has(c));
+  codes.forEach(c=>{ if(allSel) removeSel.delete(c); else removeSel.add(c); const el=$("sl_"+c); if(el) el.classList.toggle("sel",removeSel.has(c)); });
+  updateRemoveBar();
+}
+function clearSel(){
+  removeSel.forEach(c=>{ const el=$("sl_"+c); if(el) el.classList.remove("sel"); });
+  removeSel.clear(); updateRemoveBar();
+}
+function updateRemoveBar(){
+  const bar=$("removeBar");
+  if(roomMode!=="remove" || removeSel.size===0){ bar.classList.remove("show"); bar.innerHTML=""; return; }
+  bar.classList.add("show");
+  bar.innerHTML=`<span><b>${removeSel.size}</b> block${removeSel.size===1?"":"s"} selected</span>
+    <button class="btn btn-sm" onclick="clearSel()">Clear</button>
+    <button class="btn btn-sm btn-danger" onclick="removeSelected()">Remove ${removeSel.size}</button>`;
+}
+async function removeSelected(){
+  const codes=[...removeSel];
+  const ids=codes.map(c=>placementAt(c)?.id).filter(Boolean);
+  if(!ids.length) return;
+  if(!confirm(`Clear ${ids.length} block${ids.length===1?"":"s"} from the shelves? Their harvests stay in batch history.`)) return;
+  const ok=await write(db.from("mn_placements").update({removed_date:todayISO()}).in("id",ids),"Couldn't clear blocks");
+  if(ok){ removeSel.clear(); renderRoom(); }
 }
 
 /* ===== Room setup ===== */
