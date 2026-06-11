@@ -190,6 +190,8 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
 .slot .s-y{font-size:8px;font-weight:700}
 .slot .harv-dot{position:absolute;top:3px;right:3px;width:6px;height:6px;border-radius:50%;background:#fff;box-shadow:0 0 0 1.5px rgba(0,0,0,.15)}
 .mode-place .slot.empty{border-color:var(--accent);background:var(--slot-place-bg)}
+.mode-place .slot.empty.pending-place{background:var(--accent);color:var(--accent-ink);border-style:solid;transform:scale(.96)}
+.mode-place .slot.empty.pending-place::after{content:"✓";font-size:13px;font-weight:700}
 .mode-harvest .slot.full{box-shadow:inset 0 0 0 2px rgba(255,255,255,.5)}
 .slot.sel{outline:3px solid var(--danger);outline-offset:1px}
 .slot.sel::after{content:"✓";position:absolute;top:2px;left:3px;font-size:10px;font-weight:700;color:#fff;text-shadow:0 0 2px rgba(0,0,0,.4)}
@@ -527,7 +529,7 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
 const SUPABASE_URL = "https://jckfsvjodrrauwvpecks.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impja2ZzdmpvZHJyYXV3dnBlY2tzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5ODk4NTgsImV4cCI6MjA5NjU2NTg1OH0.ECtXTPKstyRW3Q_au5oucobZ1Axw44SDZXz368wNi4g";
 const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-const APP_VERSION = "v2.1 · species colour palette · 11 Jun 2026";
+const APP_VERSION = "v2.2 · place flow + species colours · 11 Jun 2026";
 
 /* ================= APPEARANCE (per-user) + BRANDING (shared) ================= */
 const ACCENTS=[
@@ -647,7 +649,7 @@ const STATE_ORDER = ["incubating","fruiting","complete","contaminated","failed",
 let batches=[], movements=[], harvests=[], costs=[];
 let zones=[], bays=[], placements=[];
 let currentBatchId=null, editingId=null;
-let roomMode="view", placeBatchId=null;
+let roomMode="view", placeBatchId=null, pendingPlaceSel=new Set();
 let removeSel=new Set();
 
 /* species colour palette — matched to actual mushroom appearance */
@@ -673,6 +675,13 @@ const SPECIES_NAMED = {
   "shiitake":                { bg:"#6A4E2C", ink:"#FFFFFF" },
   "reishi":                  { bg:"#8B3020", ink:"#FFFFFF" },
   "turkey tail":             { bg:"#586838", ink:"#FFFFFF" },
+  // short-form aliases from old block tracker data
+  "snow white":              { bg:"#EDE8E0", ink:"#3A342B" },
+  "snow oyster":             { bg:"#EDE8E0", ink:"#3A342B" },
+  "warm white":              { bg:"#DDD3BE", ink:"#3A342B" },
+  "chocolate":               { bg:"#7B4F2E", ink:"#FFFFFF" },
+  "choc":                    { bg:"#7B4F2E", ink:"#FFFFFF" },
+  "blue":                    { bg:"#4E7FA0", ink:"#FFFFFF" },
 };
 const SPECIES_FALLBACK=["#4D8FD1","#5E9E54","#C2503C","#D98E3A","#8E6FB8","#3FA6A6","#C26B9E","#7A8B3C","#B5793A","#5C7CB0"];
 const _spcCache={};
@@ -1136,7 +1145,7 @@ const placedYield = p => harvests.filter(h=>h.slot_code===p.slot_code && (!p.rem
 document.querySelectorAll("#roomModes button").forEach(b=>b.onclick=()=>{
   roomMode=b.dataset.mode;
   document.querySelectorAll("#roomModes button").forEach(x=>x.classList.toggle("active",x===b));
-  if(roomMode!=="place") placeBatchId=null;
+  if(roomMode!=="place"){ placeBatchId=null; pendingPlaceSel.clear(); }
   removeSel.clear();
   renderRoom();
 });
@@ -1166,10 +1175,12 @@ function renderRoom(){
       .map(b=>`<option value="${b.id}" ${b.id===placeBatchId?"selected":""}>#${b.batch_no} ${esc(b.name)} (${esc(b.species)})</option>`).join("");
     pb.innerHTML=`<div class="note-banner" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
       <b>Placing:</b>
-      <select id="placeSel" style="max-width:340px;width:auto" onchange="placeBatchId=this.value">
+      <select id="placeSel" style="max-width:340px;width:auto" onchange="placeBatchSelChanged()">
         <option value="">— pick a batch —</option>${opts}
       </select>
-      <span style="font-size:13px">then tap empty slots to drop blocks.</span></div>`;
+      <span id="placeCount" style="font-size:13px;color:var(--muted)">tap empty slots to select</span>
+      <button id="placeConfirmBtn" class="btn btn-primary btn-sm" style="display:none" onclick="confirmPlace()">Place <span id="placeConfirmN">0</span> blocks →</button>
+    </div>`;
     $("placeSel").value=placeBatchId||"";
   } else if(roomMode==="harvest"){
     pb.innerHTML=`<div class="note-banner">Tap a filled slot to log a harvest from it.</div>`;
@@ -1210,7 +1221,10 @@ function bayHTML(bay){
     const drawSlot = n => {
       const code=slotCode(bay,letter,n);
       const p=placementAt(code);
-      if(!p){ return `<div class="slot empty" onclick="slotTap('${bay.id}','${letter}',${n})">${letter}${n}</div>`; }
+      if(!p){
+        const isPending=pendingPlaceSel.has(code);
+        return `<div class="slot empty${isPending?" pending-place":""}" id="sl_${code}" onclick="slotTap('${bay.id}','${letter}',${n})">${isPending?"✓":letter+n}</div>`;
+      }
       const b=batches.find(x=>x.id===p.batch_id);
       const col=speciesColor(b?.species);
       const ink=speciesInk(b?.species);
@@ -1253,8 +1267,18 @@ function slotTap(bayId,letter,n){
   const p=placementAt(code);
   if(roomMode==="place"){
     if(!placeBatchId){ alert("Pick a batch to place first (top of screen)."); return; }
-    if(p){ alert(`${code} is already filled. Switch to Remove mode to clear it.`); return; }
-    placeBlock(bayId,code,letter,n);
+    if(p){
+      // already filled — if it's the same batch being placed, ignore; else warn
+      if(p.batch_id!==placeBatchId) alert(`${code} already has a block. Switch to Remove mode to clear it.`);
+      return;
+    }
+    // toggle selection
+    if(pendingPlaceSel.has(code)){ pendingPlaceSel.delete(code); }
+    else { pendingPlaceSel.add(code); }
+    const el=document.getElementById("sl_"+code);
+    if(el){ el.classList.toggle("pending-place", pendingPlaceSel.has(code)); }
+    updatePlaceBanner();
+    return;
   } else if(roomMode==="harvest"){
     if(!p){ alert("That slot is empty — nothing to harvest."); return; }
     openHarvest(p.batch_id, code);
@@ -1267,7 +1291,64 @@ function slotTap(bayId,letter,n){
   }
 }
 
+function placeBatchSelChanged(){
+  placeBatchId=$("placeSel").value;
+  pendingPlaceSel.clear();
+  renderRoom(); // redraw to clear any stale .pending-place highlights
+}
+function updatePlaceBanner(){
+  const n=pendingPlaceSel.size;
+  const countEl=$("placeCount"), btnEl=$("placeConfirmBtn"), nEl=$("placeConfirmN");
+  if(!countEl) return;
+  if(n===0){ countEl.textContent="tap empty slots to select"; countEl.style.color="var(--muted)"; btnEl.style.display="none"; }
+  else { countEl.textContent=`${n} slot${n===1?"":"s"} selected`; countEl.style.color="var(--accent)"; countEl.style.fontWeight="600"; btnEl.style.display=""; nEl.textContent=n; }
+}
+async function confirmPlace(){
+  if(!placeBatchId||pendingPlaceSel.size===0) return;
+  const b=batches.find(x=>x.id===placeBatchId);
+  const counts=batchCounts(b);
+  const n=pendingPlaceSel.size;
+  if(n>counts.incubating){
+    alert(`Only ${counts.incubating} block${counts.incubating===1?"":"s"} still incubating in this batch. You selected ${n} slots.`);
+    return;
+  }
+  setSync("","Placing…");
+  // build placement rows
+  const slots=[...pendingPlaceSel];
+  // parse slot codes back to bay/letter/num
+  const placementRows=[];
+  for(const code of slots){
+    const m=code.match(/^B(\d+)-([A-Z]+)-(\d+)$/);
+    if(!m) continue;
+    const bayNo=parseInt(m[1]), letter=m[2], slotNum=parseInt(m[3]);
+    const bay=bays.find(b=>b.bay_no===bayNo);
+    if(!bay) continue;
+    placementRows.push({bay_id:bay.id, slot_code:code, row_letter:letter, slot_num:slotNum, batch_id:placeBatchId, placed_date:todayISO()});
+  }
+  // auto-create movement: incubating → fruiting
+  const sizes=sizesInState(b,"incubating");
+  let movRows=[];
+  if(sizes.length<=1){
+    const kg=sizes.length===1?sizes[0].kg:null;
+    movRows=[{batch_id:placeBatchId, move_date:todayISO(), from_state:"incubating", to_state:"fruiting", count:n, kg, note:"Auto: placed in fruiting chamber"}];
+  } else {
+    // distribute across sizes largest-first
+    let rem=n;
+    for(const s of sizes){ if(rem<=0) break; const take=Math.min(rem,s.count); movRows.push({batch_id:placeBatchId, move_date:todayISO(), from_state:"incubating", to_state:"fruiting", count:take, kg:s.kg, note:"Auto: placed in fruiting chamber"}); rem-=take; }
+  }
+  try{
+    const {error:e1}=await db.from("mn_placements").insert(placementRows);
+    if(e1) throw e1;
+    const {error:e2}=await db.from("mn_movements").insert(movRows);
+    if(e2) throw e2;
+    pendingPlaceSel.clear();
+    await loadAll();
+    setSync("ok","Synced");
+    renderRoom();
+  }catch(e){ console.error(e); setSync("bad","Save failed"); alert("Couldn't place blocks.\n\n"+e.message); }
+}
 async function placeBlock(bayId,code,letter,n){
+  // kept for compatibility — single-block instant place (not used in normal flow anymore)
   const ok=await write(db.from("mn_placements").insert({
     bay_id:bayId, slot_code:code, row_letter:letter, slot_num:n,
     batch_id:placeBatchId, placed_date:todayISO()
