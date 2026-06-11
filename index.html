@@ -529,7 +529,7 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
 const SUPABASE_URL = "https://jckfsvjodrrauwvpecks.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impja2ZzdmpvZHJyYXV3dnBlY2tzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5ODk4NTgsImV4cCI6MjA5NjU2NTg1OH0.ECtXTPKstyRW3Q_au5oucobZ1Axw44SDZXz368wNi4g";
 const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-const APP_VERSION = "v2.2 · place flow + species colours · 11 Jun 2026";
+const APP_VERSION = "v2.3 · botanicals + split move fix · 11 Jun 2026";
 
 /* ================= APPEARANCE (per-user) + BRANDING (shared) ================= */
 const ACCENTS=[
@@ -675,13 +675,27 @@ const SPECIES_NAMED = {
   "shiitake":                { bg:"#6A4E2C", ink:"#FFFFFF" },
   "reishi":                  { bg:"#8B3020", ink:"#FFFFFF" },
   "turkey tail":             { bg:"#586838", ink:"#FFFFFF" },
-  // short-form aliases from old block tracker data
+  // short-form aliases
   "snow white":              { bg:"#EDE8E0", ink:"#3A342B" },
   "snow oyster":             { bg:"#EDE8E0", ink:"#3A342B" },
   "warm white":              { bg:"#DDD3BE", ink:"#3A342B" },
   "chocolate":               { bg:"#7B4F2E", ink:"#FFFFFF" },
   "choc":                    { bg:"#7B4F2E", ink:"#FFFFFF" },
   "blue":                    { bg:"#4E7FA0", ink:"#FFFFFF" },
+  "oyster":                  { bg:"#4E7FA0", ink:"#FFFFFF" },
+  // botanical name aliases (Myconaut uses these as the species field)
+  "pleurotus ostreatus":     { bg:"#4E7FA0", ink:"#FFFFFF" },
+  "pleurotus columbinus":    { bg:"#4E7FA0", ink:"#FFFFFF" },
+  "pleurotus djamor":        { bg:"#C85070", ink:"#FFFFFF" },
+  "pleurotus eryngii":       { bg:"#3E3A46", ink:"#FFFFFF" },
+  "flammulina velutipes":    { bg:"#BE8C18", ink:"#FFFFFF" },
+  "hericium erinaceus":      { bg:"#E8D898", ink:"#3A342B" },
+  "hericium coralloides":    { bg:"#C87448", ink:"#FFFFFF" },
+  "pholiota adiposa":        { bg:"#8C5E34", ink:"#FFFFFF" },
+  "grifola frondosa":        { bg:"#8C7E60", ink:"#FFFFFF" },
+  "lentinula edodes":        { bg:"#6A4E2C", ink:"#FFFFFF" },
+  "ganoderma lucidum":       { bg:"#8B3020", ink:"#FFFFFF" },
+  "trametes versicolor":     { bg:"#586838", ink:"#FFFFFF" },
 };
 const SPECIES_FALLBACK=["#4D8FD1","#5E9E54","#C2503C","#D98E3A","#8E6FB8","#3FA6A6","#C26B9E","#7A8B3C","#B5793A","#5C7CB0"];
 const _spcCache={};
@@ -961,8 +975,32 @@ function openForm(id){
   else if(b && b.blocks_total) blockLineState=[{count:b.blocks_total,kg:""}];
   else blockLineState=[{count:"",kg:4.5}];
   renderBlockLines();
-  const species=[...new Set([...batches.map(x=>x.species),...costs.map(x=>x.species)].filter(Boolean))];
-  $("speciesList").innerHTML=species.map(s=>`<option value="${esc(s)}">`).join("");
+  // canonical species list with botanicals — shown as suggestions in the dropdown
+  const KNOWN_SPECIES = [
+    {common:"Snow White Oyster",    sci:"Pleurotus ostreatus"},
+    {common:"Warm White Oyster",    sci:"Pleurotus ostreatus"},
+    {common:"Blue Oyster",          sci:"Pleurotus ostreatus"},
+    {common:"Chocolate Oyster",     sci:"Pleurotus ostreatus"},
+    {common:"Pink Oyster",          sci:"Pleurotus djamor"},
+    {common:"Black-Pearl King Oyster", sci:"Pleurotus eryngii"},
+    {common:"Lion's Mane",          sci:"Hericium erinaceus"},
+    {common:"Coral Tooth",          sci:"Hericium coralloides"},
+    {common:"Chestnut",             sci:"Pholiota adiposa"},
+    {common:"Golden Enoki",         sci:"Flammulina velutipes"},
+    {common:"Maitake",              sci:"Grifola frondosa"},
+    {common:"Shiitake",             sci:"Lentinula edodes"},
+    {common:"Reishi",               sci:"Ganoderma lucidum"},
+    {common:"Turkey Tail",          sci:"Trametes versicolor"},
+  ];
+  // merge with any species already used in batches/costs
+  const usedSpecies=[...new Set([...batches.map(x=>x.species),...costs.map(x=>x.species)].filter(Boolean))];
+  const allSpecies=[...KNOWN_SPECIES.map(s=>s.common), ...usedSpecies.filter(u=>!KNOWN_SPECIES.find(k=>k.common.toLowerCase()===u.toLowerCase()))];
+  $("speciesList").innerHTML=[...new Set(allSpecies)].map(s=>`<option value="${esc(s)}">`).join("");
+  // auto-fill scientific name when species is picked
+  $("f_species").oninput=function(){
+    const match=KNOWN_SPECIES.find(k=>k.common.toLowerCase()===this.value.toLowerCase().trim());
+    if(match && !$("f_sci").value) $("f_sci").value=match.sci;
+  };
   const subs=[...new Set(batches.map(x=>x.substrate).filter(Boolean))];
   $("subList").innerHTML=subs.map(s=>`<option value="${esc(s)}">`).join("");
   showView("form");
@@ -1326,21 +1364,27 @@ async function confirmPlace(){
     placementRows.push({bay_id:bay.id, slot_code:code, row_letter:letter, slot_num:slotNum, batch_id:placeBatchId, placed_date:todayISO()});
   }
   // auto-create movement: incubating → fruiting
-  const sizes=sizesInState(b,"incubating");
+  // only move as many as are actually still incubating (some may have been manually moved already)
+  const alreadyIncubating = batchCounts(b).incubating;
+  const toMove = Math.min(n, alreadyIncubating);
   let movRows=[];
-  if(sizes.length<=1){
-    const kg=sizes.length===1?sizes[0].kg:null;
-    movRows=[{batch_id:placeBatchId, move_date:todayISO(), from_state:"incubating", to_state:"fruiting", count:n, kg, note:"Auto: placed in fruiting chamber"}];
-  } else {
-    // distribute across sizes largest-first
-    let rem=n;
-    for(const s of sizes){ if(rem<=0) break; const take=Math.min(rem,s.count); movRows.push({batch_id:placeBatchId, move_date:todayISO(), from_state:"incubating", to_state:"fruiting", count:take, kg:s.kg, note:"Auto: placed in fruiting chamber"}); rem-=take; }
+  if(toMove > 0){
+    const sizes=sizesInState(b,"incubating");
+    if(sizes.length<=1){
+      const kg=sizes.length===1?sizes[0].kg:null;
+      movRows=[{batch_id:placeBatchId, move_date:todayISO(), from_state:"incubating", to_state:"fruiting", count:toMove, kg, note:"Auto: placed in fruiting chamber"}];
+    } else {
+      let rem=toMove;
+      for(const s of sizes){ if(rem<=0) break; const take=Math.min(rem,s.count); movRows.push({batch_id:placeBatchId, move_date:todayISO(), from_state:"incubating", to_state:"fruiting", count:take, kg:s.kg, note:"Auto: placed in fruiting chamber"}); rem-=take; }
+    }
   }
   try{
     const {error:e1}=await db.from("mn_placements").insert(placementRows);
     if(e1) throw e1;
-    const {error:e2}=await db.from("mn_movements").insert(movRows);
-    if(e2) throw e2;
+    if(movRows.length>0){
+      const {error:e2}=await db.from("mn_movements").insert(movRows);
+      if(e2) throw e2;
+    }
     pendingPlaceSel.clear();
     await loadAll();
     setSync("ok","Synced");
