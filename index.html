@@ -183,7 +183,7 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
 .slot:hover{border-style:solid}
 .slot:active{transform:scale(.92)}
 .slot.empty{color:var(--slot-empty-ink);font-family:"IBM Plex Mono",monospace}
-.slot.full{border-style:solid;color:#fff;border-color:transparent}
+.slot.full{border-style:solid;border-color:transparent}
 .slot .s-no{font-weight:700;font-size:11px}
 .slot .s-sp{font-size:8px;opacity:.95;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .slot .s-d{font-size:8px;opacity:.9}
@@ -527,7 +527,7 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
 const SUPABASE_URL = "https://jckfsvjodrrauwvpecks.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impja2ZzdmpvZHJyYXV3dnBlY2tzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5ODk4NTgsImV4cCI6MjA5NjU2NTg1OH0.ECtXTPKstyRW3Q_au5oucobZ1Axw44SDZXz368wNi4g";
 const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-const APP_VERSION = "v2.0 · brand font (Montserrat) · 10 Jun 2026";
+const APP_VERSION = "v2.1 · species colour palette · 11 Jun 2026";
 
 /* ================= APPEARANCE (per-user) + BRANDING (shared) ================= */
 const ACCENTS=[
@@ -650,14 +650,45 @@ let currentBatchId=null, editingId=null;
 let roomMode="view", placeBatchId=null;
 let removeSel=new Set();
 
-/* deterministic colour per species */
-const SPECIES_PALETTE=["#4D8FD1","#5E9E54","#C2503C","#D98E3A","#8E6FB8","#3FA6A6","#C26B9E","#7A8B3C","#B5793A","#5C7CB0"];
+/* species colour palette — matched to actual mushroom appearance */
+const SPECIES_NAMED = {
+  "snow white oyster":       { bg:"#EDE8E0", ink:"#3A342B" },
+  "warm white oyster":       { bg:"#DDD3BE", ink:"#3A342B" },
+  "blue oyster":             { bg:"#4E7FA0", ink:"#FFFFFF" },
+  "chocolate oyster":        { bg:"#7B4F2E", ink:"#FFFFFF" },
+  "choc oyster":             { bg:"#7B4F2E", ink:"#FFFFFF" },
+  "pink oyster":             { bg:"#C85070", ink:"#FFFFFF" },
+  "black-pearl king oyster": { bg:"#3E3A46", ink:"#FFFFFF" },
+  "black pearl king oyster": { bg:"#3E3A46", ink:"#FFFFFF" },
+  "black pearl":             { bg:"#3E3A46", ink:"#FFFFFF" },
+  "lion's mane":             { bg:"#E8D898", ink:"#3A342B" },
+  "lions mane":              { bg:"#E8D898", ink:"#3A342B" },
+  "coral tooth":             { bg:"#C87448", ink:"#FFFFFF" },
+  "chestnut":                { bg:"#8C5E34", ink:"#FFFFFF" },
+  "chestnut mushroom":       { bg:"#8C5E34", ink:"#FFFFFF" },
+  "chestnuts":               { bg:"#8C5E34", ink:"#FFFFFF" },
+  "golden enoki":            { bg:"#BE8C18", ink:"#FFFFFF" },
+  "enoki":                   { bg:"#BE8C18", ink:"#FFFFFF" },
+  "maitake":                 { bg:"#8C7E60", ink:"#FFFFFF" },
+  "shiitake":                { bg:"#6A4E2C", ink:"#FFFFFF" },
+  "reishi":                  { bg:"#8B3020", ink:"#FFFFFF" },
+  "turkey tail":             { bg:"#586838", ink:"#FFFFFF" },
+};
+const SPECIES_FALLBACK=["#4D8FD1","#5E9E54","#C2503C","#D98E3A","#8E6FB8","#3FA6A6","#C26B9E","#7A8B3C","#B5793A","#5C7CB0"];
 const _spcCache={};
 function speciesColor(sp){
   if(!sp) return "#9A9284";
   if(_spcCache[sp]) return _spcCache[sp];
+  const entry = SPECIES_NAMED[sp.toLowerCase().trim()];
+  if(entry) return _spcCache[sp]=entry.bg;
   let h=0; for(let i=0;i<sp.length;i++) h=(h*31+sp.charCodeAt(i))>>>0;
-  return _spcCache[sp]=SPECIES_PALETTE[h%SPECIES_PALETTE.length];
+  return _spcCache[sp]=SPECIES_FALLBACK[h%SPECIES_FALLBACK.length];
+}
+function speciesInk(sp){
+  if(!sp) return "#FFFFFF";
+  const entry = SPECIES_NAMED[sp.toLowerCase().trim()];
+  if(entry) return entry.ink;
+  return "#FFFFFF";
 }
 
 /* ================= HELPERS ================= */
@@ -1182,11 +1213,12 @@ function bayHTML(bay){
       if(!p){ return `<div class="slot empty" onclick="slotTap('${bay.id}','${letter}',${n})">${letter}${n}</div>`; }
       const b=batches.find(x=>x.id===p.batch_id);
       const col=speciesColor(b?.species);
+      const ink=speciesInk(b?.species);
       const days=daysBetween(p.placed_date,todayISO());
       const y=placedYield(p);
       const hasHarv=y>0;
       const sel=removeSel.has(code)?" sel":"";
-      return `<div class="slot full${sel}" id="sl_${code}" style="background:${col}" title="${code} · ${esc(b?.name||"")}" onclick="slotTap('${bay.id}','${letter}',${n})">
+      return `<div class="slot full${sel}" id="sl_${code}" style="background:${col};color:${ink}" title="${code} · ${esc(b?.name||"")}" onclick="slotTap('${bay.id}','${letter}',${n})">
         ${hasHarv?`<span class="harv-dot"></span>`:""}
         <span class="s-no">#${b?.batch_no??"?"}</span>
         <span class="s-sp">${esc(b?.species||"")}</span>
