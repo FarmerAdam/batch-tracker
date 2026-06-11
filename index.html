@@ -529,7 +529,7 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
 const SUPABASE_URL = "https://jckfsvjodrrauwvpecks.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impja2ZzdmpvZHJyYXV3dnBlY2tzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5ODk4NTgsImV4cCI6MjA5NjU2NTg1OH0.ECtXTPKstyRW3Q_au5oucobZ1Axw44SDZXz368wNi4g";
 const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-const APP_VERSION = "v2.3 · botanicals + split move fix · 11 Jun 2026";
+const APP_VERSION = "v2.4 · delete cost rows · 11 Jun 2026";
 
 /* ================= APPEARANCE (per-user) + BRANDING (shared) ================= */
 const ACCENTS=[
@@ -1716,7 +1716,7 @@ function renderCosts(){
         <td><b>${money(subkg*4.5+extras)}</b></td>
         <td><b>${money(subkg*2.5+extras)}</b></td>
         <td><input type="number" step="0.5" id="c_sale_${sid}" value="${c.sale_price_kg??""}" placeholder="e.g. 45"></td>
-        <td><button class="btn btn-sm btn-primary" onclick="saveCost('${esc(sp).replace(/'/g,"\\'")}','${sid}')">Save</button></td>
+        <td style="display:flex;gap:6px"><button class="btn btn-sm btn-primary" onclick="saveCost('${esc(sp).replace(/'/g,"\\'")}','${sid}')">Save</button>${c.id?`<button class="btn btn-sm btn-danger" title="Delete cost entry" onclick="deleteCost('${esc(sp).replace(/'/g,"\\'")}')">&times;</button>`:""}</td>
       </tr>`;}).join("")}
   </table></div>
   <div class="note-banner" style="margin-top:12px">Substrate is entered <b>per kg</b> so it scales with block size automatically. Spawn, bag and other (power, labour) are <b>per block</b>. The two block columns show what a 4.5kg and a 2.5kg block of each species costs you, built from those figures.</div>`;
@@ -1727,6 +1727,13 @@ async function saveCost(sp,sid){
     bag_cost:num("c_bag_"+sid), other_cost:num("c_oth_"+sid),
     sale_price_kg:parseFloat($("c_sale_"+sid).value)||null, updated_at:new Date().toISOString()};
   await write(db.from("mn_costs").upsert(rec,{onConflict:"species"}),"Couldn't save costs");
+}
+async function deleteCost(sp){
+  const inUse=batches.some(b=>b.species&&b.species.toLowerCase()===sp.toLowerCase()&&!b.archived);
+  if(!confirm(inUse
+    ? `Delete costs for "${sp}"? It has active batches — their margin will show as "—".`
+    : `Delete cost entry for "${sp}"?`)) return;
+  await write(db.from("mn_costs").delete().eq("species",sp),"Couldn't delete cost entry");
 }
 
 /* ================= ARCHIVE ================= */
