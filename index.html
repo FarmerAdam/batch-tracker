@@ -521,6 +521,10 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
       <button class="btn btn-primary" onclick="saveFarmBranding()">Save branding</button>
       <button class="btn" onclick="closeModal('prefsModal')">Done</button>
     </div>
+    <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--line);text-align:center">
+      <div style="font-size:13px;color:var(--muted);margin-bottom:8px" id="pf_signedinas"></div>
+      <button class="btn btn-sm btn-danger" onclick="doSignOut()">Sign out</button>
+    </div>
   </div>
 </div>
 
@@ -529,7 +533,7 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
 const SUPABASE_URL = "https://jckfsvjodrrauwvpecks.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impja2ZzdmpvZHJyYXV3dnBlY2tzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5ODk4NTgsImV4cCI6MjA5NjU2NTg1OH0.ECtXTPKstyRW3Q_au5oucobZ1Axw44SDZXz368wNi4g";
 const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-const APP_VERSION = "v2.4 · delete cost rows · 11 Jun 2026";
+const APP_VERSION = "v2.5 · auth · 11 Jun 2026";
 
 /* ================= APPEARANCE (per-user) + BRANDING (shared) ================= */
 const ACCENTS=[
@@ -585,6 +589,8 @@ function openPrefs(){
   renderThemeSeg(); renderSwatches();
   $("pf_farmname").value=branding.farmName||"";
   renderHdrLogoPrev();
+  const siEl=$("pf_signedinas");
+  if(siEl) siEl.textContent=currentUser?`Signed in as ${currentUser.email}`:"";
   openModal("prefsModal");
 }
 function prefUserChanged(){
@@ -1756,6 +1762,76 @@ function exportCSV(){
   setTimeout(()=>dl("harvests.csv",[hh.join(","),...hrows].join("\n")),400);
 }
 
+/* ================= AUTH ================= */
+let currentUser = null;
+
+function showLoginScreen(){
+  document.querySelector("header").style.display="none";
+  document.querySelector("main").style.display="none";
+  let el=$("loginScreen");
+  if(!el){
+    el=document.createElement("div");
+    el.id="loginScreen";
+    el.style.cssText="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;background:var(--bg)";
+    document.body.appendChild(el);
+  }
+  const logo=branding.logo;
+  el.style.display="flex";
+  el.innerHTML=`
+    <div style="width:100%;max-width:360px">
+      <div style="text-align:center;margin-bottom:28px">
+        ${logo?`<img src="${logo}" style="height:52px;object-fit:contain;border-radius:8px;margin-bottom:10px" alt="">`:""}
+        <h1 style="font-size:26px;font-family:Montserrat,sans-serif">${branding.farmName||"Batch Tracker"}</h1>
+        <p style="color:var(--muted);font-size:14px;margin-top:4px">Sign in to continue</p>
+      </div>
+      <div style="background:var(--card);border:1px solid var(--line);border-radius:12px;padding:24px;box-shadow:var(--shadow)">
+        <label>Email</label>
+        <input type="email" id="login_email" placeholder="you@example.com" autocomplete="username">
+        <label style="margin-top:12px">Password</label>
+        <input type="password" id="login_pw" placeholder="Password" autocomplete="current-password"
+          onkeydown="if(event.key==='Enter') doLogin()">
+        <div id="login_err" style="color:var(--danger);font-size:13px;margin-top:8px;min-height:18px"></div>
+        <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:8px" onclick="doLogin()" id="login_btn">
+          Sign in
+        </button>
+      </div>
+      <p style="text-align:center;font-size:12px;color:var(--muted);margin-top:16px">Markwood Mushrooms · internal use only</p>
+    </div>`;
+  setTimeout(()=>$("login_email")&&$("login_email").focus(), 100);
+}
+
+function hideLoginScreen(){
+  const el=$("loginScreen");
+  if(el) el.style.display="none";
+  document.querySelector("header").style.display="";
+  document.querySelector("main").style.display="";
+}
+
+async function doLogin(){
+  const email=($("login_email")||{}).value?.trim();
+  const pw=($("login_pw")||{}).value;
+  const btn=$("login_btn"), err=$("login_err");
+  if(!email||!pw){ if(err) err.textContent="Enter your email and password."; return; }
+  if(btn){ btn.textContent="Signing in…"; btn.disabled=true; }
+  const {error}=await db.auth.signInWithPassword({email,password:pw});
+  if(btn){ btn.textContent="Sign in"; btn.disabled=false; }
+  if(error){ if(err) err.textContent=error.message; return; }
+}
+
+async function doSignOut(){
+  await db.auth.signOut();
+  currentUser=null;
+  closeModal("prefsModal");
+}
+
+function applyUserToUI(user){
+  currentUser=user;
+  const name=user.user_metadata?.full_name||user.email?.split("@")[0]||"User";
+  if(!prefs.user){ prefs.user=name; savePrefs(); }
+  const syncEl=$("sync");
+  if(syncEl) syncEl.title="Signed in as "+user.email;
+}
+
 /* ================= BOOT ================= */
 function renderAll(){
   renderPipeline(); renderAnalytics(); renderCosts(); renderArchive();
@@ -1764,11 +1840,23 @@ function renderAll(){
   if($("view-room").classList.contains("active")) renderRoom();
   if($("view-roomsetup").classList.contains("active")) renderSetup();
 }
-loadCache(); renderAll();
-{ const v=$("appVer"); if(v) v.textContent=APP_VERSION; }
-loadPrefs(); loadBranding();
-loadSettings();
-loadAll().then(()=>routeFromURL(false));
+
+db.auth.onAuthStateChange(async (event, session)=>{
+  if(session?.user){
+    applyUserToUI(session.user);
+    hideLoginScreen();
+    if(event==="SIGNED_IN"||event==="INITIAL_SESSION"){
+      loadCache(); renderAll();
+      const v=$("appVer"); if(v) v.textContent=APP_VERSION;
+      loadPrefs(); loadBranding();
+      loadSettings();
+      loadAll().then(()=>routeFromURL(false));
+    }
+  } else {
+    loadPrefs(); loadBranding(); applyAppearance();
+    showLoginScreen();
+  }
+});
 </script>
 </body>
 </html>
