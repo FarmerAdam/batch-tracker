@@ -533,7 +533,7 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
 const SUPABASE_URL = "https://jckfsvjodrrauwvpecks.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impja2ZzdmpvZHJyYXV3dnBlY2tzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5ODk4NTgsImV4cCI6MjA5NjU2NTg1OH0.ECtXTPKstyRW3Q_au5oucobZ1Axw44SDZXz368wNi4g";
 const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-const APP_VERSION = "v2.5 · auth · 11 Jun 2026";
+const APP_VERSION = "v2.6 · prefs persistence fix · 16 Jun 2026";
 
 /* ================= APPEARANCE (per-user) + BRANDING (shared) ================= */
 const ACCENTS=[
@@ -545,7 +545,7 @@ const ACCENTS=[
 let prefs={user:"", theme:"light", accent:"#3E5C42"};
 let branding={farmName:"Markwood Batch Tracker", logo:null};
 
-function prefsKey(){ return "mn_prefs::"+(localStorage.getItem("mn_device_user")||"default"); }
+function prefsKey(){ return "mn_prefs::"+(currentUser?.email||localStorage.getItem("mn_device_user")||"default"); }
 function loadPrefs(){
   const u=localStorage.getItem("mn_device_user")||"";
   prefs.user=u;
@@ -1827,7 +1827,14 @@ async function doSignOut(){
 function applyUserToUI(user){
   currentUser=user;
   const name=user.user_metadata?.full_name||user.email?.split("@")[0]||"User";
-  if(!prefs.user){ prefs.user=name; savePrefs(); }
+  // reload prefs now that we know the auth email (key is now correct)
+  try{
+    const stored=JSON.parse(localStorage.getItem(prefsKey()));
+    if(stored) prefs={...prefs,...stored};
+  }catch(e){}
+  prefs.user=name;
+  savePrefs();
+  applyAppearance();
   const syncEl=$("sync");
   if(syncEl) syncEl.title="Signed in as "+user.email;
 }
@@ -1848,7 +1855,7 @@ db.auth.onAuthStateChange(async (event, session)=>{
     if(event==="SIGNED_IN"||event==="INITIAL_SESSION"){
       loadCache(); renderAll();
       const v=$("appVer"); if(v) v.textContent=APP_VERSION;
-      loadPrefs(); loadBranding();
+      loadBranding();
       loadSettings();
       loadAll().then(()=>routeFromURL(false));
     }
