@@ -128,6 +128,9 @@ main{max-width:1440px;margin:0 auto;padding:16px}
 
 /* tables */
 .tablewrap{overflow-x:auto;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow)}
+.drag-handle{cursor:grab;user-select:none;color:var(--muted);font-size:16px;padding:2px 6px;line-height:1}
+.drag-handle:active{cursor:grabbing}
+tr.dragging{opacity:.4}
 table{border-collapse:collapse;width:100%;font-size:14px;min-width:760px}
 th,td{padding:10px 12px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
 th:first-child,td:first-child{text-align:left}
@@ -1584,22 +1587,31 @@ async function saveBlockWater(){
   }catch(e){ setSync("bad","Save failed"); alert("Couldn't sync block-size water settings.\n\n"+e.message); }
   renderCosts(); renderAnalytics();
 }
-/* Custom species display order for the Costs tab (e.g. grouping cheaper species together). */
+/* Custom species display order — shared by the Costs and Analytics tabs so you can
+   group species (e.g. cheaper ones together) and see it reflected in both. */
 let costSpeciesOrder=[];
+let dragSpecies=null;
 function orderedCostSpecies(){
   const species=[...new Set([...batches.map(b=>b.species),...costs.map(c=>c.species)].filter(Boolean))];
   const known=costSpeciesOrder.filter(sp=>species.includes(sp));
   const rest=species.filter(sp=>!known.includes(sp)).sort((a,b)=>a.localeCompare(b));
   return [...known,...rest];
 }
-async function moveCostSpecies(sp,dir){
+function speciesDragStart(e,sp){ dragSpecies=sp; e.dataTransfer.effectAllowed="move"; try{e.dataTransfer.setData("text/plain",sp);}catch(_){} e.currentTarget.closest("tr")?.classList.add("dragging"); }
+function speciesDragEnd(e){ e.currentTarget.closest("tr")?.classList.remove("dragging"); dragSpecies=null; }
+function speciesDragOver(e){ e.preventDefault(); e.dataTransfer.dropEffect="move"; }
+async function speciesDrop(e,targetSp){
+  e.preventDefault();
+  const sp=dragSpecies; dragSpecies=null;
+  if(!sp||sp===targetSp) return;
   const order=orderedCostSpecies();
-  const i=order.indexOf(sp), j=i+dir;
-  if(i<0||j<0||j>=order.length) return;
-  [order[i],order[j]]=[order[j],order[i]];
+  const from=order.indexOf(sp); if(from<0) return;
+  order.splice(from,1);
+  const to=order.indexOf(targetSp);
+  order.splice(to<0?order.length:to,0,sp);
   costSpeciesOrder=order;
   localStorage.setItem("mn_costorder",JSON.stringify(order));
-  renderCosts();
+  renderCosts(); renderAnalytics();
   setSync("","Saving…");
   try{
     await db.from("mn_settings").upsert({key:"cost_species_order",value:JSON.stringify(order)},{onConflict:"key"});
@@ -1747,15 +1759,18 @@ function renderAnalytics(){
       avgFruit:avg(fruitDays), avgComplete:wavg(completeDays),
       gPerBlock:toFruit&&yld?Math.round(yld/toFruit):null, yPerKgSub, bePct,
       costKg, sale, margin, retail, retailMargin, weightMissing};
-  }).sort((a,b)=>b.yld-a.yld);
+  });
+  const order=orderedCostSpecies();
+  rows.sort((a,b)=>order.indexOf(a.sp)-order.indexOf(b.sp));
 
   if(!rows.length){ $("analyticsWrap").innerHTML=`<div class="empty">No batches yet — analytics will build themselves as you log.</div>`; return; }
   const anyMissing=rows.some(r=>r.weightMissing);
   $("analyticsWrap").innerHTML=`<div class="tablewrap"><table>
-    <tr><th>Species</th><th>Batches</th><th>Blocks inoc</th><th>→ Fruiting</th><th>Contam</th><th>No colonise</th>
+    <tr><th></th><th>Species</th><th>Batches</th><th>Blocks inoc</th><th>→ Fruiting</th><th>Contam</th><th>No colonise</th>
         <th>Avg days → fruit</th><th>Avg days → done</th><th title="Dry substrate weight — water backed out of the finished block weight">Dry substrate</th><th>Total yield</th><th>g / fruited block</th><th>Yield/kg sub</th><th title="Biological efficiency — fresh yield ÷ dry substrate weight">Efficiency</th>
         <th>Cost / kg</th><th>Wholesale $/kg</th><th>Wholesale margin</th><th>Retail $/kg</th><th>Retail margin</th></tr>
-    ${rows.map(r=>`<tr>
+    ${rows.map(r=>{const spEsc=esc(r.sp).replace(/'/g,"\\'");return `<tr ondragover="speciesDragOver(event)" ondrop="speciesDrop(event,'${spEsc}')">
+      <td style="text-align:center"><span class="drag-handle" draggable="true" title="Drag to reorder" ondragstart="speciesDragStart(event,'${spEsc}')" ondragend="speciesDragEnd(event)">&#9776;</span></td>
       <td><b>${esc(r.sp)}</b>${r.weightMissing?' <span title="Some batches have no block weight set — cost/efficiency may be understated" style="color:var(--st-failed)">*</span>':""}</td><td>${r.batches}</td><td>${r.inoc}</td>
       <td>${r.toFruit} (${r.pctFruit}%)</td>
       <td>${r.contam?`${r.contam} (${r.pctContam}%)`:"0"}</td>
@@ -1770,7 +1785,7 @@ function renderAnalytics(){
       <td class="${r.margin==null?"":r.margin<0?"neg":"pos"}">${r.margin!=null?money(r.margin):"—"}</td>
       <td>${r.retail!=null?money(r.retail):"—"}</td>
       <td class="${r.retailMargin==null?"":r.retailMargin<0?"neg":"pos"}">${r.retailMargin!=null?money(r.retailMargin):"—"}</td>
-    </tr>`).join("")}
+    </tr>`;}).join("")}
   </table></div>${anyMissing?`<div class="note-banner" style="margin-top:12px">* Some batches don't have block weights recorded, so their substrate cost isn't counted — those species' cost/kg and efficiency are understated until you edit the batch and add block sizes.</div>`:""}`;
 }
 
@@ -1805,11 +1820,8 @@ function renderCosts(){
       const spEsc=esc(sp).replace(/'/g,"\\'");
       const extras=(Number(c.spawn_cost)||0)+(Number(c.bag_cost)||0)+(Number(c.other_cost)||0);
       const subkg=Number(c.substrate_cost)||0;
-      return `<tr>
-        <td style="display:flex;gap:2px;padding-right:4px">
-          <button class="btn btn-sm" title="Move up" ${i===0?"disabled":""} onclick="moveCostSpecies('${spEsc}',-1)">&uarr;</button>
-          <button class="btn btn-sm" title="Move down" ${i===species.length-1?"disabled":""} onclick="moveCostSpecies('${spEsc}',1)">&darr;</button>
-        </td>
+      return `<tr ondragover="speciesDragOver(event)" ondrop="speciesDrop(event,'${spEsc}')">
+        <td style="text-align:center"><span class="drag-handle" draggable="true" title="Drag to reorder" ondragstart="speciesDragStart(event,'${spEsc}')" ondragend="speciesDragEnd(event)">&#9776;</span></td>
         <td><b>${esc(sp)}</b></td>
         <td><input type="number" step="0.01" id="c_sub_${sid}" value="${c.substrate_cost??""}" placeholder="0"></td>
         <td><input type="number" step="0.01" id="c_spw_${sid}" value="${c.spawn_cost??""}" placeholder="0"></td>
@@ -1821,7 +1833,7 @@ function renderCosts(){
         <td style="display:flex;gap:6px"><button class="btn btn-sm btn-primary" onclick="saveCost('${spEsc}','${sid}')">Save</button>${c.id?`<button class="btn btn-sm btn-danger" title="Delete cost entry" onclick="deleteCost('${spEsc}')">&times;</button>`:""}</td>
       </tr>`;}).join("")}
   </table></div>
-  <div class="note-banner" style="margin-top:12px">Substrate is entered <b>per kg dry</b> so it scales with block size automatically. Spawn, bag and other (power, labour) are <b>per block</b>. The block columns above show what each configured finished block size costs you — substrate is charged on the <b>dry weight</b> only, with water backed out since well water costs next to nothing. <b>Retail $/kg</b> is a target price for market sales (not yet tied to actual transactions) so you can sanity-check retail markup against wholesale. Use the arrows to reorder species — e.g. group cheaper ones together.</div>
+  <div class="note-banner" style="margin-top:12px">Substrate is entered <b>per kg dry</b> so it scales with block size automatically. Spawn, bag and other (power, labour) are <b>per block</b>. The block columns above show what each configured finished block size costs you — substrate is charged on the <b>dry weight</b> only, with water backed out since well water costs next to nothing. <b>Retail $/kg</b> is a target price for market sales (not yet tied to actual transactions) so you can sanity-check retail markup against wholesale. Drag the &#9776; handle to reorder species — e.g. group cheaper ones together. The order is shared with the Analytics tab.</div>
   ${blockWaterPanelHTML()}`;
 }
 async function saveCost(sp,sid){
