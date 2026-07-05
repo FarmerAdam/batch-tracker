@@ -533,7 +533,7 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
 const SUPABASE_URL = "https://jckfsvjodrrauwvpecks.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impja2ZzdmpvZHJyYXV3dnBlY2tzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5ODk4NTgsImV4cCI6MjA5NjU2NTg1OH0.ECtXTPKstyRW3Q_au5oucobZ1Axw44SDZXz368wNi4g";
 const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-const APP_VERSION = "v2.6 · prefs persistence fix · 16 Jun 2026";
+const APP_VERSION = "v2.7 · dry-weight substrate costing + block water settings · 6 Jul 2026";
 
 /* ================= APPEARANCE (per-user) + BRANDING (shared) ================= */
 const ACCENTS=[
@@ -778,17 +778,30 @@ function salePrice(species){ const c=costRow(species); return c?.sale_price_kg?N
 function blockLines(b){ return Array.isArray(b.block_sizes)&&b.block_sizes.length ? b.block_sizes : null; }
 function totalBlocks(b){ const ls=blockLines(b); return ls ? ls.reduce((s,l)=>s+(Number(l.count)||0),0) : (b.blocks_total||0); }
 function substrateKg(b){ const ls=blockLines(b); return ls ? ls.reduce((s,l)=>s+(Number(l.count)||0)*(Number(l.kg)||0),0) : null; }
-/* cost: substrate is $/kg × actual kg; spawn/bag/other are per block */
+/* Water added per finished (hydrated) block size, in litres — used to back out
+   dry substrate weight for costing/efficiency so we don't charge substrate
+   rates against water weight (well water costs next to nothing).
+   Add an entry here if a new block size comes into use; unlisted sizes are
+   treated as fully dry (no adjustment) until added below. */
+let BLOCK_WATER_L = { 4.5: 2.5, 2.5: 1.5 };
+let blockWaterState = Object.entries(BLOCK_WATER_L).map(([kg,water])=>({kg:Number(kg),water:Number(water)})).sort((a,b)=>b.kg-a.kg);
+function dryKgForLine(l){
+  const total=Number(l.kg)||0;
+  const water=BLOCK_WATER_L[total] ?? 0;
+  return Math.max(0, total-water);
+}
+function dryKg(b){ const ls=blockLines(b); return ls ? ls.reduce((s,l)=>s+(Number(l.count)||0)*dryKgForLine(l),0) : null; }
+/* cost: substrate is dollars per kg DRY × actual dry kg; spawn/bag/other are per block */
 function perBlockExtras(species){ const c=costRow(species); if(!c) return 0; return Number(c.spawn_cost||0)+Number(c.bag_cost||0)+Number(c.other_cost||0); }
 function subPerKg(species){ const c=costRow(species); return c?Number(c.substrate_cost||0):0; }
 function batchCost(b){
   const c=costRow(b.species); if(!c) return null;
-  const blocks=totalBlocks(b), kg=substrateKg(b);
+  const blocks=totalBlocks(b), kg=dryKg(b);
   const extras=perBlockExtras(b.species)*blocks;
   const sub=(kg!=null)?subPerKg(b.species)*kg:0;
   return {cost:extras+sub, hasWeight:kg!=null, kg};
 }
-function blockCostExample(species,kg){ return subPerKg(species)*kg + perBlockExtras(species); }
+function blockCostExample(species,kg){ return subPerKg(species)*dryKgForLine({kg}) + perBlockExtras(species); }
 
 /* ================= DATA ================= */
 function cache(){ try{ localStorage.setItem("mn_cache", JSON.stringify({batches,movements,harvests,costs,zones,bays,placements})); }catch(e){} }
@@ -1530,13 +1543,43 @@ let labelCfg={size:"munbyn",copies:1,logo:null,logoScale:100,fields:{species:fal
 
 async function loadSettings(){
   try{ const ls=JSON.parse(localStorage.getItem("mn_labelcfg")); if(ls) labelCfg={...labelCfg,...ls,fields:{...labelCfg.fields,...(ls.fields||{})}}; }catch(e){}
+  try{ const bw=JSON.parse(localStorage.getItem("mn_blockwater")); if(bw) applyBlockWaterConfig(bw); }catch(e){}
   try{
     const {data,error}=await db.from("mn_settings").select("*");
     if(!error&&data) for(const r of data){
       if(r.key==="labelcfg"){ const v=JSON.parse(r.value); labelCfg={...labelCfg,...v,fields:{...labelCfg.fields,...(v.fields||{})},logo:labelCfg.logo}; }
       if(r.key==="logo") labelCfg.logo=r.value;
+      if(r.key==="block_water"){ try{ applyBlockWaterConfig(JSON.parse(r.value)); }catch(e){} }
     }
   }catch(e){ console.warn("mn_settings table not found — label settings will only stick on this device.",e); }
+  renderCosts(); renderAnalytics();
+}
+/* Block-size → water(L) config used to back out dry substrate weight for costing/efficiency. */
+function applyBlockWaterConfig(map){
+  BLOCK_WATER_L = map;
+  blockWaterState = Object.entries(BLOCK_WATER_L).map(([kg,water])=>({kg:Number(kg),water:Number(water)})).sort((a,b)=>b.kg-a.kg);
+}
+function addBlockWaterRow(){ blockWaterState.push({kg:"",water:""}); renderCosts(); }
+function removeBlockWaterRow(i){ blockWaterState.splice(i,1); renderCosts(); }
+function blockWaterFieldChanged(i,field,val){
+  blockWaterState[i][field]=val;
+  const kg=parseFloat(blockWaterState[i].kg)||0, water=parseFloat(blockWaterState[i].water)||0;
+  const dryEl=$("bw_dry_"+i); if(dryEl) dryEl.textContent=Math.max(0,kg-water).toFixed(2)+"kg dry";
+}
+async function saveBlockWater(){
+  const map={};
+  for(const r of blockWaterState){
+    const kg=parseFloat(r.kg), water=parseFloat(r.water);
+    if(kg>0 && water>=0) map[kg]=water;
+  }
+  applyBlockWaterConfig(map);
+  localStorage.setItem("mn_blockwater",JSON.stringify(map));
+  setSync("","Saving…");
+  try{
+    await db.from("mn_settings").upsert({key:"block_water",value:JSON.stringify(map)},{onConflict:"key"});
+    setSync("ok","Synced");
+  }catch(e){ setSync("bad","Save failed"); alert("Couldn't sync block-size water settings.\n\n"+e.message); }
+  renderCosts(); renderAnalytics();
 }
 async function persistLabelCfg(){
   try{ localStorage.setItem("mn_labelcfg",JSON.stringify(labelCfg)); }catch(e){}
@@ -1652,7 +1695,7 @@ function renderAnalytics(){
     let fruitDays=[],completeDays=[];
     for(const b of bs){
       inoc+=totalBlocks(b); yld+=batchYield(b);
-      const sk=substrateKg(b); if(sk!=null) subKg+=sk; else if(totalBlocks(b)>0) weightMissing=true;
+      const sk=dryKg(b); if(sk!=null) subKg+=sk; else if(totalBlocks(b)>0) weightMissing=true;
       const bc=batchCost(b); if(bc){ totalCost+=bc.cost; costKnown=true; if(!bc.hasWeight) weightMissing=true; }
       for(const m of movements.filter(m=>m.batch_id===b.id)){
         if(m.to_state==="fruiting") toFruit+=m.count;
@@ -1683,7 +1726,7 @@ function renderAnalytics(){
   const anyMissing=rows.some(r=>r.weightMissing);
   $("analyticsWrap").innerHTML=`<div class="tablewrap"><table>
     <tr><th>Species</th><th>Batches</th><th>Blocks inoc</th><th>→ Fruiting</th><th>Contam</th><th>No colonise</th>
-        <th>Avg days → fruit</th><th>Avg days → done</th><th>Substrate</th><th>Total yield</th><th>g / fruited block</th><th>Yield/kg sub</th><th>Efficiency</th>
+        <th>Avg days → fruit</th><th>Avg days → done</th><th title="Dry substrate weight — water backed out of the finished block weight">Dry substrate</th><th>Total yield</th><th>g / fruited block</th><th>Yield/kg sub</th><th title="Biological efficiency — fresh yield ÷ dry substrate weight">Efficiency</th>
         <th>Cost / kg</th><th>Sale $/kg</th><th>Margin / kg</th></tr>
     ${rows.map(r=>`<tr>
       <td><b>${esc(r.sp)}</b>${r.weightMissing?' <span title="Some batches have no block weight set — cost/efficiency may be understated" style="color:var(--st-failed)">*</span>':""}</td><td>${r.batches}</td><td>${r.inoc}</td>
@@ -1703,11 +1746,30 @@ function renderAnalytics(){
 }
 
 /* ================= COSTS ================= */
+function blockWaterPanelHTML(){
+  return `<div class="tablewrap" style="margin-top:28px"><table class="costs-table">
+    <tr><th>Block size (kg, hydrated)</th><th>Water added (L)</th><th>Dry weight</th><th></th></tr>
+    ${blockWaterState.map((r,i)=>{
+      const kg=parseFloat(r.kg)||0, water=parseFloat(r.water)||0;
+      return `<tr>
+        <td><input type="number" step="0.1" min="0" placeholder="kg" value="${r.kg}" oninput="blockWaterFieldChanged(${i},'kg',this.value)"></td>
+        <td><input type="number" step="0.1" min="0" placeholder="L" value="${r.water}" oninput="blockWaterFieldChanged(${i},'water',this.value)"></td>
+        <td><span id="bw_dry_${i}">${Math.max(0,kg-water).toFixed(2)}kg dry</span></td>
+        <td><button class="btn btn-sm x" title="Remove size" onclick="removeBlockWaterRow(${i})">&times;</button></td>
+      </tr>`;}).join("")}
+  </table></div>
+  <div style="display:flex;gap:8px;margin-top:10px">
+    <button class="btn btn-sm" onclick="addBlockWaterRow()">+ Add block size</button>
+    <button class="btn btn-sm btn-primary" onclick="saveBlockWater()">Save block sizes</button>
+  </div>
+  <div class="note-banner" style="margin-top:12px">Tells the app how much water is added to each finished block size, so substrate cost and efficiency are calculated on the <b>dry</b> weight, not the hydrated weight — well water costs next to nothing so it shouldn't inflate substrate cost. Add a row whenever a new block size comes into use; sizes here also drive the per-block cost columns in the table above.</div>`;
+}
 function renderCosts(){
   const species=[...new Set([...batches.map(b=>b.species),...costs.map(c=>c.species)].filter(Boolean))].sort();
-  if(!species.length){ $("costsWrap").innerHTML=`<div class="empty">Create a batch first — its species will show up here.</div>`; return; }
+  const sizes=Object.keys(BLOCK_WATER_L).map(Number).sort((a,b)=>b-a);
+  if(!species.length){ $("costsWrap").innerHTML=`<div class="empty">Create a batch first — its species will show up here.</div>`+blockWaterPanelHTML(); return; }
   $("costsWrap").innerHTML=`<div class="tablewrap"><table class="costs-table">
-    <tr><th>Species</th><th>Substrate $/kg</th><th>Spawn $/block</th><th>Bag $/block</th><th>Other $/block</th><th>4.5kg block</th><th>2.5kg block</th><th>Sale $/kg</th><th></th></tr>
+    <tr><th>Species</th><th>Substrate $/kg</th><th>Spawn $/block</th><th>Bag $/block</th><th>Other $/block</th>${sizes.map(s=>`<th>${s%1?s.toFixed(1):s}kg block</th>`).join("")}<th>Sale $/kg</th><th></th></tr>
     ${species.map(sp=>{
       const c=costs.find(x=>x.species.toLowerCase()===sp.toLowerCase())||{};
       const sid=sp.replace(/[^a-z0-9]/gi,"_");
@@ -1719,13 +1781,13 @@ function renderCosts(){
         <td><input type="number" step="0.01" id="c_spw_${sid}" value="${c.spawn_cost??""}" placeholder="0"></td>
         <td><input type="number" step="0.01" id="c_bag_${sid}" value="${c.bag_cost??""}" placeholder="0"></td>
         <td><input type="number" step="0.01" id="c_oth_${sid}" value="${c.other_cost??""}" placeholder="0"></td>
-        <td><b>${money(subkg*4.5+extras)}</b></td>
-        <td><b>${money(subkg*2.5+extras)}</b></td>
+        ${sizes.map(s=>`<td><b>${money(subkg*dryKgForLine({kg:s})+extras)}</b></td>`).join("")}
         <td><input type="number" step="0.5" id="c_sale_${sid}" value="${c.sale_price_kg??""}" placeholder="e.g. 45"></td>
         <td style="display:flex;gap:6px"><button class="btn btn-sm btn-primary" onclick="saveCost('${esc(sp).replace(/'/g,"\\'")}','${sid}')">Save</button>${c.id?`<button class="btn btn-sm btn-danger" title="Delete cost entry" onclick="deleteCost('${esc(sp).replace(/'/g,"\\'")}')">&times;</button>`:""}</td>
       </tr>`;}).join("")}
   </table></div>
-  <div class="note-banner" style="margin-top:12px">Substrate is entered <b>per kg</b> so it scales with block size automatically. Spawn, bag and other (power, labour) are <b>per block</b>. The two block columns show what a 4.5kg and a 2.5kg block of each species costs you, built from those figures.</div>`;
+  <div class="note-banner" style="margin-top:12px">Substrate is entered <b>per kg dry</b> so it scales with block size automatically. Spawn, bag and other (power, labour) are <b>per block</b>. The block columns above show what each configured finished block size costs you — substrate is charged on the <b>dry weight</b> only, with water backed out since well water costs next to nothing.</div>
+  ${blockWaterPanelHTML()}`;
 }
 async function saveCost(sp,sid){
   const num=id=>parseFloat($(id).value)||0;
