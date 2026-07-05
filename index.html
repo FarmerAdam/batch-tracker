@@ -44,7 +44,7 @@ a{color:var(--accent)}
 
 /* header */
 header{background:var(--card);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:50}
-.hdr-top{display:flex;align-items:center;gap:10px;padding:12px 16px;max-width:1200px;margin:0 auto}
+.hdr-top{display:flex;align-items:center;gap:10px;padding:12px 16px;max-width:1440px;margin:0 auto}
 .logo{width:26px;height:26px;flex:none}
 .hdr-logo{width:26px;height:26px;flex:none;display:inline-flex;align-items:center;justify-content:center}
 .hdr-logo img{width:26px;height:26px;object-fit:contain;border-radius:5px}
@@ -61,11 +61,11 @@ header{background:var(--card);border-bottom:1px solid var(--line);position:stick
 #pf_themeseg{margin-top:6px}
 #pf_themeseg button.active{background:var(--accent);color:var(--accent-ink)}
 .logo-prev{height:38px;border:1px solid var(--line);border-radius:6px;background:#fff;padding:3px}
-nav{display:flex;gap:4px;padding:0 12px 0;max-width:1200px;margin:0 auto;overflow-x:auto}
+nav{display:flex;gap:4px;padding:0 12px 0;max-width:1440px;margin:0 auto;overflow-x:auto}
 nav button{padding:9px 14px;font-weight:600;font-size:14px;color:var(--muted);border-bottom:3px solid transparent;white-space:nowrap}
 nav button.active{color:var(--ink);border-bottom-color:var(--accent)}
 
-main{max-width:1200px;margin:0 auto;padding:16px}
+main{max-width:1440px;margin:0 auto;padding:16px}
 .appver{text-align:center;font-size:12px;color:var(--muted);opacity:.7;padding:18px 0 8px}
 .view{display:none}.view.active{display:block}
 
@@ -533,7 +533,7 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
 const SUPABASE_URL = "https://jckfsvjodrrauwvpecks.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impja2ZzdmpvZHJyYXV3dnBlY2tzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5ODk4NTgsImV4cCI6MjA5NjU2NTg1OH0.ECtXTPKstyRW3Q_au5oucobZ1Axw44SDZXz368wNi4g";
 const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-const APP_VERSION = "v2.8 · retail target price + wholesale/retail margins · 6 Jul 2026";
+const APP_VERSION = "v2.9 · reorder species, wider layout, tab-refocus fix · 6 Jul 2026";
 
 /* ================= APPEARANCE (per-user) + BRANDING (shared) ================= */
 const ACCENTS=[
@@ -1545,12 +1545,14 @@ let labelCfg={size:"munbyn",copies:1,logo:null,logoScale:100,fields:{species:fal
 async function loadSettings(){
   try{ const ls=JSON.parse(localStorage.getItem("mn_labelcfg")); if(ls) labelCfg={...labelCfg,...ls,fields:{...labelCfg.fields,...(ls.fields||{})}}; }catch(e){}
   try{ const bw=JSON.parse(localStorage.getItem("mn_blockwater")); if(bw) applyBlockWaterConfig(bw); }catch(e){}
+  try{ const co=JSON.parse(localStorage.getItem("mn_costorder")); if(Array.isArray(co)) costSpeciesOrder=co; }catch(e){}
   try{
     const {data,error}=await db.from("mn_settings").select("*");
     if(!error&&data) for(const r of data){
       if(r.key==="labelcfg"){ const v=JSON.parse(r.value); labelCfg={...labelCfg,...v,fields:{...labelCfg.fields,...(v.fields||{})},logo:labelCfg.logo}; }
       if(r.key==="logo") labelCfg.logo=r.value;
       if(r.key==="block_water"){ try{ applyBlockWaterConfig(JSON.parse(r.value)); }catch(e){} }
+      if(r.key==="cost_species_order"){ try{ const v=JSON.parse(r.value); if(Array.isArray(v)) costSpeciesOrder=v; }catch(e){} }
     }
   }catch(e){ console.warn("mn_settings table not found — label settings will only stick on this device.",e); }
   renderCosts(); renderAnalytics();
@@ -1581,6 +1583,28 @@ async function saveBlockWater(){
     setSync("ok","Synced");
   }catch(e){ setSync("bad","Save failed"); alert("Couldn't sync block-size water settings.\n\n"+e.message); }
   renderCosts(); renderAnalytics();
+}
+/* Custom species display order for the Costs tab (e.g. grouping cheaper species together). */
+let costSpeciesOrder=[];
+function orderedCostSpecies(){
+  const species=[...new Set([...batches.map(b=>b.species),...costs.map(c=>c.species)].filter(Boolean))];
+  const known=costSpeciesOrder.filter(sp=>species.includes(sp));
+  const rest=species.filter(sp=>!known.includes(sp)).sort((a,b)=>a.localeCompare(b));
+  return [...known,...rest];
+}
+async function moveCostSpecies(sp,dir){
+  const order=orderedCostSpecies();
+  const i=order.indexOf(sp), j=i+dir;
+  if(i<0||j<0||j>=order.length) return;
+  [order[i],order[j]]=[order[j],order[i]];
+  costSpeciesOrder=order;
+  localStorage.setItem("mn_costorder",JSON.stringify(order));
+  renderCosts();
+  setSync("","Saving…");
+  try{
+    await db.from("mn_settings").upsert({key:"cost_species_order",value:JSON.stringify(order)},{onConflict:"key"});
+    setSync("ok","Synced");
+  }catch(e){ setSync("bad","Save failed"); alert("Couldn't sync species order.\n\n"+e.message); }
 }
 async function persistLabelCfg(){
   try{ localStorage.setItem("mn_labelcfg",JSON.stringify(labelCfg)); }catch(e){}
@@ -1770,17 +1794,22 @@ function blockWaterPanelHTML(){
   <div class="note-banner" style="margin-top:12px">Tells the app how much water is added to each finished block size, so substrate cost and efficiency are calculated on the <b>dry</b> weight, not the hydrated weight — well water costs next to nothing so it shouldn't inflate substrate cost. Add a row whenever a new block size comes into use; sizes here also drive the per-block cost columns in the table above.</div>`;
 }
 function renderCosts(){
-  const species=[...new Set([...batches.map(b=>b.species),...costs.map(c=>c.species)].filter(Boolean))].sort();
+  const species=orderedCostSpecies();
   const sizes=Object.keys(BLOCK_WATER_L).map(Number).sort((a,b)=>b-a);
   if(!species.length){ $("costsWrap").innerHTML=`<div class="empty">Create a batch first — its species will show up here.</div>`+blockWaterPanelHTML(); return; }
   $("costsWrap").innerHTML=`<div class="tablewrap"><table class="costs-table">
-    <tr><th>Species</th><th>Substrate $/kg</th><th>Spawn $/block</th><th>Bag $/block</th><th>Other $/block</th>${sizes.map(s=>`<th>${s%1?s.toFixed(1):s}kg block</th>`).join("")}<th>Wholesale $/kg</th><th>Retail $/kg</th><th></th></tr>
-    ${species.map(sp=>{
+    <tr><th></th><th>Species</th><th>Substrate $/kg</th><th>Spawn $/block</th><th>Bag $/block</th><th>Other $/block</th>${sizes.map(s=>`<th>${s%1?s.toFixed(1):s}kg block</th>`).join("")}<th>Wholesale $/kg</th><th>Retail $/kg</th><th></th></tr>
+    ${species.map((sp,i)=>{
       const c=costs.find(x=>x.species.toLowerCase()===sp.toLowerCase())||{};
       const sid=sp.replace(/[^a-z0-9]/gi,"_");
+      const spEsc=esc(sp).replace(/'/g,"\\'");
       const extras=(Number(c.spawn_cost)||0)+(Number(c.bag_cost)||0)+(Number(c.other_cost)||0);
       const subkg=Number(c.substrate_cost)||0;
       return `<tr>
+        <td style="display:flex;gap:2px;padding-right:4px">
+          <button class="btn btn-sm" title="Move up" ${i===0?"disabled":""} onclick="moveCostSpecies('${spEsc}',-1)">&uarr;</button>
+          <button class="btn btn-sm" title="Move down" ${i===species.length-1?"disabled":""} onclick="moveCostSpecies('${spEsc}',1)">&darr;</button>
+        </td>
         <td><b>${esc(sp)}</b></td>
         <td><input type="number" step="0.01" id="c_sub_${sid}" value="${c.substrate_cost??""}" placeholder="0"></td>
         <td><input type="number" step="0.01" id="c_spw_${sid}" value="${c.spawn_cost??""}" placeholder="0"></td>
@@ -1789,10 +1818,10 @@ function renderCosts(){
         ${sizes.map(s=>`<td><b>${money(subkg*dryKgForLine({kg:s})+extras)}</b></td>`).join("")}
         <td><input type="number" step="0.5" id="c_sale_${sid}" value="${c.sale_price_kg??""}" placeholder="e.g. 45"></td>
         <td><input type="number" step="0.5" id="c_retail_${sid}" value="${c.retail_price_kg??""}" placeholder="e.g. 60"></td>
-        <td style="display:flex;gap:6px"><button class="btn btn-sm btn-primary" onclick="saveCost('${esc(sp).replace(/'/g,"\\'")}','${sid}')">Save</button>${c.id?`<button class="btn btn-sm btn-danger" title="Delete cost entry" onclick="deleteCost('${esc(sp).replace(/'/g,"\\'")}')">&times;</button>`:""}</td>
+        <td style="display:flex;gap:6px"><button class="btn btn-sm btn-primary" onclick="saveCost('${spEsc}','${sid}')">Save</button>${c.id?`<button class="btn btn-sm btn-danger" title="Delete cost entry" onclick="deleteCost('${spEsc}')">&times;</button>`:""}</td>
       </tr>`;}).join("")}
   </table></div>
-  <div class="note-banner" style="margin-top:12px">Substrate is entered <b>per kg dry</b> so it scales with block size automatically. Spawn, bag and other (power, labour) are <b>per block</b>. The block columns above show what each configured finished block size costs you — substrate is charged on the <b>dry weight</b> only, with water backed out since well water costs next to nothing. <b>Retail $/kg</b> is a target price for market sales (not yet tied to actual transactions) so you can sanity-check retail markup against wholesale.</div>
+  <div class="note-banner" style="margin-top:12px">Substrate is entered <b>per kg dry</b> so it scales with block size automatically. Spawn, bag and other (power, labour) are <b>per block</b>. The block columns above show what each configured finished block size costs you — substrate is charged on the <b>dry weight</b> only, with water backed out since well water costs next to nothing. <b>Retail $/kg</b> is a target price for market sales (not yet tied to actual transactions) so you can sanity-check retail markup against wholesale. Use the arrows to reorder species — e.g. group cheaper ones together.</div>
   ${blockWaterPanelHTML()}`;
 }
 async function saveCost(sp,sid){
@@ -1917,16 +1946,22 @@ function renderAll(){
   if($("view-roomsetup").classList.contains("active")) renderSetup();
 }
 
+let appBooted=false;
 db.auth.onAuthStateChange(async (event, session)=>{
   if(session?.user){
     applyUserToUI(session.user);
     hideLoginScreen();
-    if(event==="SIGNED_IN"||event==="INITIAL_SESSION"){
+    if(!appBooted && (event==="SIGNED_IN"||event==="INITIAL_SESSION")){
+      appBooted=true;
       loadCache(); renderAll();
       const v=$("appVer"); if(v) v.textContent=APP_VERSION;
       loadBranding();
       loadSettings();
       loadAll().then(()=>routeFromURL(false));
+    } else if(appBooted && event==="SIGNED_IN"){
+      // Supabase re-fires SIGNED_IN when the tab regains focus and revalidates
+      // the session — refresh data quietly without resetting the current view.
+      loadAll();
     }
   } else {
     loadPrefs(); loadBranding(); applyAppearance();
