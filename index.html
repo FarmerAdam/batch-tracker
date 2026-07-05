@@ -533,7 +533,7 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
 const SUPABASE_URL = "https://jckfsvjodrrauwvpecks.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impja2ZzdmpvZHJyYXV3dnBlY2tzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5ODk4NTgsImV4cCI6MjA5NjU2NTg1OH0.ECtXTPKstyRW3Q_au5oucobZ1Axw44SDZXz368wNi4g";
 const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-const APP_VERSION = "v2.7 · dry-weight substrate costing + block water settings · 6 Jul 2026";
+const APP_VERSION = "v2.8 · retail target price + wholesale/retail margins · 6 Jul 2026";
 
 /* ================= APPEARANCE (per-user) + BRANDING (shared) ================= */
 const ACCENTS=[
@@ -774,6 +774,7 @@ function batchColumn(b){ const c=batchCounts(b); if(c.fruiting>0) return "fruiti
 function firstMoveTo(b,state){ const ms=movements.filter(m=>m.batch_id===b.id&&m.to_state===state).sort((a,x)=>a.move_date<x.move_date?-1:1); return ms[0]?.move_date||null; }
 function costRow(species){ return costs.find(x=>x.species.toLowerCase()===species.toLowerCase()); }
 function salePrice(species){ const c=costRow(species); return c?.sale_price_kg?Number(c.sale_price_kg):null; }
+function retailPrice(species){ const c=costRow(species); return c?.retail_price_kg?Number(c.retail_price_kg):null; }
 /* block-size aware helpers */
 function blockLines(b){ return Array.isArray(b.block_sizes)&&b.block_sizes.length ? b.block_sizes : null; }
 function totalBlocks(b){ const ls=blockLines(b); return ls ? ls.reduce((s,l)=>s+(Number(l.count)||0),0) : (b.blocks_total||0); }
@@ -1710,8 +1711,10 @@ function renderAnalytics(){
     const avg=a=>a.length?Math.round(a.reduce((s,x)=>s+x,0)/a.length):null;
     const wavg=a=>{const tw=a.reduce((s,x)=>s+x.w,0); return tw?Math.round(a.reduce((s,x)=>s+x.d*x.w,0)/tw):null;};
     const sale=salePrice(sp);
+    const retail=retailPrice(sp);
     const costKg=(costKnown&&yld>0)?totalCost/(yld/1000):null;
     const margin=(costKg!=null&&sale!=null)?sale-costKg:null;
+    const retailMargin=(costKg!=null&&retail!=null)?retail-costKg:null;
     const yPerKgSub=(subKg>0)?Math.round(yld/subKg):null;       // g yield per kg substrate
     const bePct=(subKg>0)?Math.round((yld/1000)/subKg*100):null; // simple efficiency %
     return {sp,batches:bs.length,inoc,toFruit,contam,failed,yld,subKg,
@@ -1719,7 +1722,7 @@ function renderAnalytics(){
       pctFailed:inoc?Math.round(failed/inoc*100):0,
       avgFruit:avg(fruitDays), avgComplete:wavg(completeDays),
       gPerBlock:toFruit&&yld?Math.round(yld/toFruit):null, yPerKgSub, bePct,
-      costKg, sale, margin, weightMissing};
+      costKg, sale, margin, retail, retailMargin, weightMissing};
   }).sort((a,b)=>b.yld-a.yld);
 
   if(!rows.length){ $("analyticsWrap").innerHTML=`<div class="empty">No batches yet — analytics will build themselves as you log.</div>`; return; }
@@ -1727,7 +1730,7 @@ function renderAnalytics(){
   $("analyticsWrap").innerHTML=`<div class="tablewrap"><table>
     <tr><th>Species</th><th>Batches</th><th>Blocks inoc</th><th>→ Fruiting</th><th>Contam</th><th>No colonise</th>
         <th>Avg days → fruit</th><th>Avg days → done</th><th title="Dry substrate weight — water backed out of the finished block weight">Dry substrate</th><th>Total yield</th><th>g / fruited block</th><th>Yield/kg sub</th><th title="Biological efficiency — fresh yield ÷ dry substrate weight">Efficiency</th>
-        <th>Cost / kg</th><th>Sale $/kg</th><th>Margin / kg</th></tr>
+        <th>Cost / kg</th><th>Wholesale $/kg</th><th>Wholesale margin</th><th>Retail $/kg</th><th>Retail margin</th></tr>
     ${rows.map(r=>`<tr>
       <td><b>${esc(r.sp)}</b>${r.weightMissing?' <span title="Some batches have no block weight set — cost/efficiency may be understated" style="color:var(--st-failed)">*</span>':""}</td><td>${r.batches}</td><td>${r.inoc}</td>
       <td>${r.toFruit} (${r.pctFruit}%)</td>
@@ -1741,6 +1744,8 @@ function renderAnalytics(){
       <td>${r.costKg!=null?money(r.costKg):"—"}</td>
       <td>${r.sale!=null?money(r.sale):"—"}</td>
       <td class="${r.margin==null?"":r.margin<0?"neg":"pos"}">${r.margin!=null?money(r.margin):"—"}</td>
+      <td>${r.retail!=null?money(r.retail):"—"}</td>
+      <td class="${r.retailMargin==null?"":r.retailMargin<0?"neg":"pos"}">${r.retailMargin!=null?money(r.retailMargin):"—"}</td>
     </tr>`).join("")}
   </table></div>${anyMissing?`<div class="note-banner" style="margin-top:12px">* Some batches don't have block weights recorded, so their substrate cost isn't counted — those species' cost/kg and efficiency are understated until you edit the batch and add block sizes.</div>`:""}`;
 }
@@ -1769,7 +1774,7 @@ function renderCosts(){
   const sizes=Object.keys(BLOCK_WATER_L).map(Number).sort((a,b)=>b-a);
   if(!species.length){ $("costsWrap").innerHTML=`<div class="empty">Create a batch first — its species will show up here.</div>`+blockWaterPanelHTML(); return; }
   $("costsWrap").innerHTML=`<div class="tablewrap"><table class="costs-table">
-    <tr><th>Species</th><th>Substrate $/kg</th><th>Spawn $/block</th><th>Bag $/block</th><th>Other $/block</th>${sizes.map(s=>`<th>${s%1?s.toFixed(1):s}kg block</th>`).join("")}<th>Sale $/kg</th><th></th></tr>
+    <tr><th>Species</th><th>Substrate $/kg</th><th>Spawn $/block</th><th>Bag $/block</th><th>Other $/block</th>${sizes.map(s=>`<th>${s%1?s.toFixed(1):s}kg block</th>`).join("")}<th>Wholesale $/kg</th><th>Retail $/kg</th><th></th></tr>
     ${species.map(sp=>{
       const c=costs.find(x=>x.species.toLowerCase()===sp.toLowerCase())||{};
       const sid=sp.replace(/[^a-z0-9]/gi,"_");
@@ -1783,17 +1788,19 @@ function renderCosts(){
         <td><input type="number" step="0.01" id="c_oth_${sid}" value="${c.other_cost??""}" placeholder="0"></td>
         ${sizes.map(s=>`<td><b>${money(subkg*dryKgForLine({kg:s})+extras)}</b></td>`).join("")}
         <td><input type="number" step="0.5" id="c_sale_${sid}" value="${c.sale_price_kg??""}" placeholder="e.g. 45"></td>
+        <td><input type="number" step="0.5" id="c_retail_${sid}" value="${c.retail_price_kg??""}" placeholder="e.g. 60"></td>
         <td style="display:flex;gap:6px"><button class="btn btn-sm btn-primary" onclick="saveCost('${esc(sp).replace(/'/g,"\\'")}','${sid}')">Save</button>${c.id?`<button class="btn btn-sm btn-danger" title="Delete cost entry" onclick="deleteCost('${esc(sp).replace(/'/g,"\\'")}')">&times;</button>`:""}</td>
       </tr>`;}).join("")}
   </table></div>
-  <div class="note-banner" style="margin-top:12px">Substrate is entered <b>per kg dry</b> so it scales with block size automatically. Spawn, bag and other (power, labour) are <b>per block</b>. The block columns above show what each configured finished block size costs you — substrate is charged on the <b>dry weight</b> only, with water backed out since well water costs next to nothing.</div>
+  <div class="note-banner" style="margin-top:12px">Substrate is entered <b>per kg dry</b> so it scales with block size automatically. Spawn, bag and other (power, labour) are <b>per block</b>. The block columns above show what each configured finished block size costs you — substrate is charged on the <b>dry weight</b> only, with water backed out since well water costs next to nothing. <b>Retail $/kg</b> is a target price for market sales (not yet tied to actual transactions) so you can sanity-check retail markup against wholesale.</div>
   ${blockWaterPanelHTML()}`;
 }
 async function saveCost(sp,sid){
   const num=id=>parseFloat($(id).value)||0;
   const rec={species:sp, substrate_cost:num("c_sub_"+sid), spawn_cost:num("c_spw_"+sid),
     bag_cost:num("c_bag_"+sid), other_cost:num("c_oth_"+sid),
-    sale_price_kg:parseFloat($("c_sale_"+sid).value)||null, updated_at:new Date().toISOString()};
+    sale_price_kg:parseFloat($("c_sale_"+sid).value)||null,
+    retail_price_kg:parseFloat($("c_retail_"+sid).value)||null, updated_at:new Date().toISOString()};
   await write(db.from("mn_costs").upsert(rec,{onConflict:"species"}),"Couldn't save costs");
 }
 async function deleteCost(sp){
