@@ -13,7 +13,7 @@
 :root{
   --bg:#F6F4EF; --card:#FFFFFF; --ink:#2A241B; --muted:#7A7264; --line:#E4DFD3;
   --accent:#3E5C42; --accent-ink:#FFFFFF; --danger:#B5402E;
-  --st-incubating:#C9C2B4; --st-fruiting:#4D8FD1; --st-complete:#5E9E54;
+  --st-incubating:#C9C2B4; --st-ready:#8C6FB0; --st-fruiting:#4D8FD1; --st-complete:#5E9E54;
   --st-contaminated:#C2503C; --st-failed:#D98E3A; --st-culled:#6E665A;
   --slot-empty-bg:#FBFAF6; --slot-empty-ink:#C4BCAC; --slot-place-bg:#EFF3EF;
   --radius:10px; --shadow:0 1px 3px rgba(42,36,27,.08);
@@ -80,7 +80,7 @@ main{max-width:1440px;margin:0 auto;padding:16px}
 .search{max-width:340px}
 
 /* pipeline */
-.pipeline{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;align-items:start}
+.pipeline{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;align-items:start}
 .col{background:rgba(255,255,255,.45);border:1.5px dashed var(--line);border-radius:var(--radius);padding:10px;min-height:120px}
 .col-head{display:flex;align-items:baseline;justify-content:space-between;padding:4px 6px 10px}
 .col-head h2{font-size:16px;text-transform:uppercase;letter-spacing:.6px}
@@ -536,7 +536,7 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
 const SUPABASE_URL = "https://jckfsvjodrrauwvpecks.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impja2ZzdmpvZHJyYXV3dnBlY2tzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5ODk4NTgsImV4cCI6MjA5NjU2NTg1OH0.ECtXTPKstyRW3Q_au5oucobZ1Axw44SDZXz368wNi4g";
 const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-const APP_VERSION = "v3.0 · ready-to-fruit date marker · 6 Jul 2026";
+const APP_VERSION = "v3.1 · Ready to fruit pipeline column · 6 Jul 2026";
 
 /* ================= APPEARANCE (per-user) + BRANDING (shared) ================= */
 const ACCENTS=[
@@ -773,7 +773,7 @@ function sizesInState(b,state){
 function batchHasMultipleSizes(b){ const ls=blockLines(b); return ls && ls.length>1; }
 const batchYield = b => harvests.filter(h=>h.batch_id===b.id).reduce((s,h)=>s+Number(h.weight_g),0);
 const batchHarvestCount = b => harvests.filter(h=>h.batch_id===b.id).length;
-function batchColumn(b){ const c=batchCounts(b); if(c.fruiting>0) return "fruiting"; if(c.incubating>0) return "incubating"; return "complete"; }
+function batchColumn(b){ const c=batchCounts(b); if(c.fruiting>0) return "fruiting"; if(c.incubating>0) return b.ready_date?"ready":"incubating"; return "complete"; }
 function firstMoveTo(b,state){ const ms=movements.filter(m=>m.batch_id===b.id&&m.to_state===state).sort((a,x)=>a.move_date<x.move_date?-1:1); return ms[0]?.move_date||null; }
 function costRow(species){ return costs.find(x=>x.species.toLowerCase()===species.toLowerCase()); }
 function salePrice(species){ const c=costRow(species); return c?.sale_price_kg?Number(c.sale_price_kg):null; }
@@ -883,16 +883,17 @@ function countSummary(c){
 }
 function renderPipeline(){
   const q = ($("search").value||"").toLowerCase();
-  const cols = {incubating:[],fruiting:[],complete:[]};
+  const cols = {incubating:[],ready:[],fruiting:[],complete:[]};
   for(const b of batches){
     if(b.archived) continue;
     const hay = [b.name,b.species,b.scientific,b.substrate,b.spawn_code,b.method,"#"+b.batch_no].join(" ").toLowerCase();
     if(q && !hay.includes(q)) continue;
     cols[batchColumn(b)].push(b);
   }
-  const colDefs=[["incubating","Incubating"],["fruiting","Fruiting"],["complete","Complete"]];
+  const colDefs=[["incubating","Incubating"],["ready","Ready to fruit"],["fruiting","Fruiting"],["complete","Complete"]];
+  const colColor={incubating:"var(--st-incubating)",ready:"var(--st-ready)",fruiting:"var(--st-fruiting)",complete:"var(--st-complete)"};
   $("pipeline").innerHTML = colDefs.map(([key,label])=>`
-    <div class="col">
+    <div class="col" style="border-top:3px solid ${colColor[key]}">
       <div class="col-head"><h2>${label}</h2><span class="count">${cols[key].length} batch${cols[key].length===1?"":"es"}</span></div>
       ${cols[key].map(cardHTML).join("") || `<div class="empty" style="padding:24px">Nothing here</div>`}
     </div>`).join("");
@@ -908,6 +909,7 @@ function cardHTML(b){
       <span><b>${fmtWeight(y)}</b> yield</span>
       <span><b>${age}</b> days</span>
       <span style="color:var(--muted)">${countSummary(c)}</span>
+      ${b.ready_date?`<span style="color:var(--st-ready)">Ready since ${fmtDate(b.ready_date)}</span>`:""}
     </div>
   </div>`;
 }
