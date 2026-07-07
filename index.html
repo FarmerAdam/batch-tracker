@@ -536,7 +536,7 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
 const SUPABASE_URL = "https://jckfsvjodrrauwvpecks.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impja2ZzdmpvZHJyYXV3dnBlY2tzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5ODk4NTgsImV4cCI6MjA5NjU2NTg1OH0.ECtXTPKstyRW3Q_au5oucobZ1Axw44SDZXz368wNi4g";
 const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-const APP_VERSION = "v2.9 · reorder species, wider layout, tab-refocus fix · 6 Jul 2026";
+const APP_VERSION = "v3.0 · ready-to-fruit date marker · 6 Jul 2026";
 
 /* ================= APPEARANCE (per-user) + BRANDING (shared) ================= */
 const ACCENTS=[
@@ -841,6 +841,13 @@ async function write(action, errMsg){
   if(error){ console.error(error); setSync("bad","Save failed"); alert(errMsg+"\n\n"+error.message); return false; }
   await loadAll(); return true;
 }
+async function setReadyDate(id){
+  const v=$("readyDateInput").value; if(!v) return;
+  await write(db.from("mn_batches").update({ready_date:v}).eq("id",id),"Couldn't save ready-to-fruit date");
+}
+async function clearReadyDate(id){
+  await write(db.from("mn_batches").update({ready_date:null}).eq("id",id),"Couldn't clear ready-to-fruit date");
+}
 
 /* ================= ROUTING ================= */
 function showView(name, push=true){
@@ -946,6 +953,13 @@ function renderBatch(){
       ${miniGrid(b,true)}
       <div class="legend">${STATE_ORDER.map(s=>`<span><span class="sq ${s}"></span>${STATES[s].label} (${c[s]})</span>`).join("")}</div>
       ${(()=>{ const on=placements.filter(p=>p.batch_id===b.id&&!p.removed_date); return on.length?`<div style="margin-top:12px;font-size:14px"><b>On shelves (${on.length}):</b> <span class="mono" style="color:var(--muted)">${on.map(p=>p.slot_code).sort().join(", ")}</span></div>`:""; })()}
+      <div style="margin-top:14px;font-size:14px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <b>Ready to fruit:</b>
+        ${b.ready_date?`<span>${fmtDate(b.ready_date)} <span style="color:var(--muted)">(${daysBetween(b.inoc_date,b.ready_date)} days from inoc)</span></span>`:`<span style="color:var(--muted)">Not marked yet</span>`}
+        <input type="date" id="readyDateInput" value="${b.ready_date||todayISO()}">
+        <button class="btn btn-sm btn-primary" onclick="setReadyDate('${b.id}')">${b.ready_date?"Update":"Mark ready"}</button>
+        ${b.ready_date?`<button class="btn btn-sm" onclick="clearReadyDate('${b.id}')">Clear</button>`:""}
+      </div>
       <div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap">
         <button class="btn btn-primary" onclick="openMove('${b.id}')">Move blocks</button>
         <button class="btn btn-primary" onclick="openHarvest('${b.id}')">Log harvest</button>
@@ -1729,7 +1743,7 @@ function renderAnalytics(){
   }
   const rows=Object.entries(bySpecies).map(([sp,bs])=>{
     let inoc=0,toFruit=0,contam=0,failed=0,culled=0,yld=0,subKg=0,totalCost=0,costKnown=false,weightMissing=false;
-    let fruitDays=[],completeDays=[];
+    let fruitDays=[],completeDays=[],readyDays=[];
     for(const b of bs){
       inoc+=totalBlocks(b); yld+=batchYield(b);
       const sk=dryKg(b); if(sk!=null) subKg+=sk; else if(totalBlocks(b)>0) weightMissing=true;
@@ -1743,6 +1757,7 @@ function renderAnalytics(){
       }
       const ff=firstMoveTo(b,"fruiting");
       if(ff) fruitDays.push(daysBetween(b.inoc_date,ff));
+      if(b.ready_date) readyDays.push(daysBetween(b.inoc_date,b.ready_date));
     }
     const avg=a=>a.length?Math.round(a.reduce((s,x)=>s+x,0)/a.length):null;
     const wavg=a=>{const tw=a.reduce((s,x)=>s+x.w,0); return tw?Math.round(a.reduce((s,x)=>s+x.d*x.w,0)/tw):null;};
@@ -1756,7 +1771,7 @@ function renderAnalytics(){
     return {sp,batches:bs.length,inoc,toFruit,contam,failed,yld,subKg,
       pctFruit:inoc?Math.round(toFruit/inoc*100):0, pctContam:inoc?Math.round(contam/inoc*100):0,
       pctFailed:inoc?Math.round(failed/inoc*100):0,
-      avgFruit:avg(fruitDays), avgComplete:wavg(completeDays),
+      avgFruit:avg(fruitDays), avgComplete:wavg(completeDays), avgReady:avg(readyDays), readyCount:readyDays.length,
       gPerBlock:toFruit&&yld?Math.round(yld/toFruit):null, yPerKgSub, bePct,
       costKg, sale, margin, retail, retailMargin, weightMissing};
   });
@@ -1767,7 +1782,7 @@ function renderAnalytics(){
   const anyMissing=rows.some(r=>r.weightMissing);
   $("analyticsWrap").innerHTML=`<div class="tablewrap"><table>
     <tr><th></th><th>Species</th><th>Batches</th><th>Blocks inoc</th><th>→ Fruiting</th><th>Contam</th><th>No colonise</th>
-        <th>Avg days → fruit</th><th>Avg days → done</th><th title="Dry substrate weight — water backed out of the finished block weight">Dry substrate</th><th>Total yield</th><th>g / fruited block</th><th>Yield/kg sub</th><th title="Biological efficiency — fresh yield ÷ dry substrate weight">Efficiency</th>
+        <th>Avg days → fruit</th><th title="Manually logged 'ready to fruit' date, independent of when blocks are physically moved to the fruiting chamber">Avg days → ready</th><th>Avg days → done</th><th title="Dry substrate weight — water backed out of the finished block weight">Dry substrate</th><th>Total yield</th><th>g / fruited block</th><th>Yield/kg sub</th><th title="Biological efficiency — fresh yield ÷ dry substrate weight">Efficiency</th>
         <th>Cost / kg</th><th>Wholesale $/kg</th><th>Wholesale margin</th><th>Retail $/kg</th><th>Retail margin</th></tr>
     ${rows.map(r=>{const spEsc=esc(r.sp).replace(/'/g,"\\'");return `<tr ondragover="speciesDragOver(event)" ondrop="speciesDrop(event,'${spEsc}')">
       <td style="text-align:center"><span class="drag-handle" draggable="true" title="Drag to reorder" ondragstart="speciesDragStart(event,'${spEsc}')" ondragend="speciesDragEnd(event)">&#9776;</span></td>
@@ -1775,7 +1790,9 @@ function renderAnalytics(){
       <td>${r.toFruit} (${r.pctFruit}%)</td>
       <td>${r.contam?`${r.contam} (${r.pctContam}%)`:"0"}</td>
       <td>${r.failed?`${r.failed} (${r.pctFailed}%)`:"0"}</td>
-      <td>${r.avgFruit??"—"}</td><td>${r.avgComplete??"—"}</td>
+      <td>${r.avgFruit??"—"}</td>
+      <td>${r.avgReady!=null?r.avgReady+` (n=${r.readyCount})`:"—"}</td>
+      <td>${r.avgComplete??"—"}</td>
       <td>${r.subKg>0?(r.subKg%1?r.subKg.toFixed(1):r.subKg)+" kg":"—"}</td>
       <td>${fmtWeight(r.yld)}</td><td>${r.gPerBlock??"—"}</td>
       <td>${r.yPerKgSub!=null?r.yPerKgSub+" g":"—"}</td>
@@ -1864,8 +1881,8 @@ function renderArchive(){
 function dl(name,text){ const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([text],{type:"text/csv"})); a.download=name; a.click(); }
 function csvCell(v){ v=(v??"").toString(); return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; }
 function exportCSV(){
-  const bh=["batch_no","name","species","scientific","substrate","method","spawn_code","inoc_date","blocks_total","substrate_kg","block_sizes","incubating","fruiting","complete","contaminated","failed","culled","total_yield_g","harvest_count","batch_cost","archived","notes"];
-  const brows=batches.map(b=>{const c=batchCounts(b);const sk=substrateKg(b);const bc=batchCost(b);const bsz=blockLines(b)?blockLines(b).map(l=>`${l.count}x${l.kg}kg`).join(" + "):"";return [b.batch_no,b.name,b.species,b.scientific,b.substrate,b.method,b.spawn_code,b.inoc_date,totalBlocks(b),sk??"",bsz,c.incubating,c.fruiting,c.complete,c.contaminated,c.failed,c.culled,batchYield(b),batchHarvestCount(b),bc?bc.cost.toFixed(2):"",b.archived,b.notes].map(csvCell).join(",");});
+  const bh=["batch_no","name","species","scientific","substrate","method","spawn_code","inoc_date","blocks_total","substrate_kg","block_sizes","incubating","fruiting","complete","contaminated","failed","culled","ready_date","total_yield_g","harvest_count","batch_cost","archived","notes"];
+  const brows=batches.map(b=>{const c=batchCounts(b);const sk=substrateKg(b);const bc=batchCost(b);const bsz=blockLines(b)?blockLines(b).map(l=>`${l.count}x${l.kg}kg`).join(" + "):"";return [b.batch_no,b.name,b.species,b.scientific,b.substrate,b.method,b.spawn_code,b.inoc_date,totalBlocks(b),sk??"",bsz,c.incubating,c.fruiting,c.complete,c.contaminated,c.failed,c.culled,b.ready_date||"",batchYield(b),batchHarvestCount(b),bc?bc.cost.toFixed(2):"",b.archived,b.notes].map(csvCell).join(",");});
   dl("batches.csv",[bh.join(","),...brows].join("\n"));
   const hh=["batch_no","batch_name","species","harvest_date","weight_g","flush","slot","note"];
   const hrows=harvests.map(h=>{const b=batches.find(x=>x.id===h.batch_id)||{};return [b.batch_no,b.name,b.species,h.harvest_date,h.weight_g,h.flush,h.slot_code||"",h.note].map(csvCell).join(",");});
