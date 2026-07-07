@@ -31,6 +31,7 @@
 [data-theme="dark"] th{background:#211F1B}
 [data-theme="dark"] .tag.mv{background:#22303f;color:#9cc4e8}
 [data-theme="dark"] .tag.hv{background:#22331e;color:#9fd494}
+[data-theme="dark"] .tag.ready{background:#2E2740;color:#C4A9E8}
 *{box-sizing:border-box;margin:0;padding:0}
 html{-webkit-text-size-adjust:100%}
 body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink);font-size:15px;line-height:1.45}
@@ -101,7 +102,7 @@ main{max-width:1440px;margin:0 auto;padding:16px}
 .legend{display:flex;flex-wrap:wrap;gap:12px;font-size:13px;color:var(--muted);margin-top:10px}
 .legend span{display:inline-flex;align-items:center;gap:5px}
 .legend .sq{width:11px;height:11px;border-radius:3px;display:inline-block}
-.sq.incubating{background:var(--st-incubating)} .sq.fruiting{background:var(--st-fruiting)}
+.sq.incubating{background:var(--st-incubating)} .sq.fruiting{background:var(--st-fruiting)} .sq.ready{background:var(--st-ready)}
 .sq.complete{background:var(--st-complete)} .sq.contaminated{background:var(--st-contaminated)}
 .sq.failed{background:var(--st-failed)} .sq.culled{background:var(--st-culled)}
 
@@ -122,7 +123,7 @@ main{max-width:1440px;margin:0 auto;padding:16px}
 .log li:last-child{border-bottom:none}
 .log .d{flex:none;width:86px;color:var(--muted)}
 .log .tag{flex:none;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;padding:2px 7px;border-radius:5px;height:fit-content}
-.tag.mv{background:#EEF3FA;color:#2F6BAB} .tag.hv{background:#ECF4EA;color:#3F7A38}
+.tag.mv{background:#EEF3FA;color:#2F6BAB} .tag.hv{background:#ECF4EA;color:#3F7A38} .tag.ready{background:#F1ECF7;color:#6B4E96}
 .log .del{margin-left:auto;color:var(--muted);font-size:12px}
 .log .del:hover{color:var(--danger)}
 
@@ -131,6 +132,8 @@ main{max-width:1440px;margin:0 auto;padding:16px}
 .drag-handle{cursor:grab;user-select:none;color:var(--muted);font-size:16px;padding:2px 6px;line-height:1}
 .drag-handle:active{cursor:grabbing}
 tr.dragging{opacity:.4}
+.card.dragging{opacity:.4}
+.col.drop-ok{background:rgba(140,111,176,.10);border-style:solid}
 table{border-collapse:collapse;width:100%;font-size:14px;min-width:760px}
 th,td{padding:10px 12px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
 th:first-child,td:first-child{text-align:left}
@@ -536,7 +539,7 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
 const SUPABASE_URL = "https://jckfsvjodrrauwvpecks.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impja2ZzdmpvZHJyYXV3dnBlY2tzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5ODk4NTgsImV4cCI6MjA5NjU2NTg1OH0.ECtXTPKstyRW3Q_au5oucobZ1Axw44SDZXz368wNi4g";
 const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-const APP_VERSION = "v3.1 · Ready to fruit pipeline column · 6 Jul 2026";
+const APP_VERSION = "v3.2 · drag pipeline cards, ready-log entry, settings race fix · 7 Jul 2026";
 
 /* ================= APPEARANCE (per-user) + BRANDING (shared) ================= */
 const ACCENTS=[
@@ -873,13 +876,19 @@ function routeFromURL(push){
 }
 
 /* ================= RENDER: PIPELINE ================= */
+/* When a batch is marked ready to fruit, its still-incubating blocks are shown as
+   "ready" (purple) everywhere blocks are visualised, without changing the underlying count. */
+function displayState(st,b){
+  if(st==="incubating"&&b?.ready_date) return {cls:"ready",label:"Ready to fruit"};
+  return {cls:st,label:STATES[st].label};
+}
 function miniGrid(b, big=false){
   const c=batchCounts(b); let sq="";
-  for(const st of STATE_ORDER){ for(let i=0;i<Math.max(0,c[st]);i++) sq+=`<span class="sq ${st}" title="${STATES[st].label}"></span>`; }
+  for(const st of STATE_ORDER){ const v=displayState(st,b); for(let i=0;i<Math.max(0,c[st]);i++) sq+=`<span class="sq ${v.cls}" title="${v.label}"></span>`; }
   return `<div class="bgrid${big?" big":""}">${sq}</div>`;
 }
-function countSummary(c){
-  return STATE_ORDER.filter(s=>c[s]>0).map(s=>`${c[s]} ${STATES[s].label.toLowerCase()}`).join(" · ") || "—";
+function countSummary(c,b){
+  return STATE_ORDER.filter(s=>c[s]>0).map(s=>`${c[s]} ${displayState(s,b).label.toLowerCase()}`).join(" · ") || "—";
 }
 function renderPipeline(){
   const q = ($("search").value||"").toLowerCase();
@@ -892,23 +901,41 @@ function renderPipeline(){
   }
   const colDefs=[["incubating","Incubating"],["ready","Ready to fruit"],["fruiting","Fruiting"],["complete","Complete"]];
   const colColor={incubating:"var(--st-incubating)",ready:"var(--st-ready)",fruiting:"var(--st-fruiting)",complete:"var(--st-complete)"};
+  const dragOk=key=>key==="incubating"||key==="ready";
   $("pipeline").innerHTML = colDefs.map(([key,label])=>`
-    <div class="col" style="border-top:3px solid ${colColor[key]}">
+    <div class="col" style="border-top:3px solid ${colColor[key]}"${dragOk(key)?` ondragover="pipelineColDragOver(event)" ondragenter="this.classList.add('drop-ok')" ondragleave="this.classList.remove('drop-ok')" ondrop="pipelineColDrop(event,'${key}')"`:""}>
       <div class="col-head"><h2>${label}</h2><span class="count">${cols[key].length} batch${cols[key].length===1?"":"es"}</span></div>
       ${cols[key].map(cardHTML).join("") || `<div class="empty" style="padding:24px">Nothing here</div>`}
     </div>`).join("");
 }
+let dragBatchId=null;
+function cardDragStart(e,id){ dragBatchId=id; e.dataTransfer.effectAllowed="move"; try{e.dataTransfer.setData("text/plain",id);}catch(_){} e.currentTarget.classList.add("dragging"); }
+function cardDragEnd(e){ e.currentTarget.classList.remove("dragging"); dragBatchId=null; }
+function pipelineColDragOver(e){ e.preventDefault(); e.dataTransfer.dropEffect="move"; }
+async function pipelineColDrop(e,key){
+  e.preventDefault();
+  const id=dragBatchId; dragBatchId=null;
+  if(!id) return;
+  const b=batches.find(x=>x.id===id); if(!b) return;
+  const curCol=batchColumn(b);
+  if(curCol!==key){
+    if(key==="ready") await write(db.from("mn_batches").update({ready_date:todayISO()}).eq("id",id),"Couldn't mark ready");
+    else if(key==="incubating") await write(db.from("mn_batches").update({ready_date:null}).eq("id",id),"Couldn't clear ready date");
+  }
+}
 function cardHTML(b){
   const c=batchCounts(b), y=batchYield(b);
   const age=daysBetween(b.inoc_date,todayISO());
-  return `<div class="card" onclick="openBatch('${b.id}')">
+  const col=batchColumn(b);
+  const canDrag=col==="incubating"||col==="ready";
+  return `<div class="card"${canDrag?` draggable="true" ondragstart="cardDragStart(event,'${b.id}')" ondragend="cardDragEnd(event)"`:""} onclick="openBatch('${b.id}')">
     <h3>${esc(b.name)} <span class="bno mono">#${b.batch_no}</span></h3>
     <div class="species">${esc(b.species)}${b.spawn_code?` · <span class="mono">${esc(b.spawn_code)}</span>`:""}</div>
     ${miniGrid(b)}
     <div class="stats">
       <span><b>${fmtWeight(y)}</b> yield</span>
       <span><b>${age}</b> days</span>
-      <span style="color:var(--muted)">${countSummary(c)}</span>
+      <span style="color:var(--muted)">${countSummary(c,b)}</span>
       ${b.ready_date?`<span style="color:var(--st-ready)">Ready since ${fmtDate(b.ready_date)}</span>`:""}
     </div>
   </div>`;
@@ -928,7 +955,9 @@ function renderBatch(){
     ...movements.filter(m=>m.batch_id===b.id).map(m=>({type:"mv",date:m.move_date,id:m.id,created:m.created_at,
       text:`${m.count}${m.kg?` × ${m.kg}kg`:""} block${m.count===1?"":"s"}: ${STATES[m.from_state]?.label||m.from_state} → ${STATES[m.to_state]?.label||m.to_state}${m.note?` — ${esc(m.note)}`:""}`})),
     ...harvests.filter(h=>h.batch_id===b.id).map(h=>({type:"hv",date:h.harvest_date,id:h.id,created:h.created_at,
-      text:`${fmtWeight(Number(h.weight_g))}${h.flush?` · flush ${h.flush}`:""}${h.note?` — ${esc(h.note)}`:""}`}))
+      text:`${fmtWeight(Number(h.weight_g))}${h.flush?` · flush ${h.flush}`:""}${h.note?` — ${esc(h.note)}`:""}`})),
+    ...(b.ready_date?[{type:"ready",date:b.ready_date,id:b.id,created:b.ready_date+"T12:00:00",
+      text:`Marked ready to fruit — Incubating → Ready to fruit`}]:[])
   ].sort((a,x)=> a.date===x.date ? (a.created<x.created?1:-1) : (a.date<x.date?1:-1));
 
   $("view-batch").innerHTML = `
@@ -953,7 +982,7 @@ function renderBatch(){
     <div class="panel">
       <h3>Blocks — ${b.blocks_total} total</h3>
       ${miniGrid(b,true)}
-      <div class="legend">${STATE_ORDER.map(s=>`<span><span class="sq ${s}"></span>${STATES[s].label} (${c[s]})</span>`).join("")}</div>
+      <div class="legend">${STATE_ORDER.map(s=>{const v=displayState(s,b);return `<span><span class="sq ${v.cls}"></span>${v.label} (${c[s]})</span>`;}).join("")}</div>
       ${(()=>{ const on=placements.filter(p=>p.batch_id===b.id&&!p.removed_date); return on.length?`<div style="margin-top:12px;font-size:14px"><b>On shelves (${on.length}):</b> <span class="mono" style="color:var(--muted)">${on.map(p=>p.slot_code).sort().join(", ")}</span></div>`:""; })()}
       <div style="margin-top:14px;font-size:14px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
         <b>Ready to fruit:</b>
@@ -985,7 +1014,7 @@ function renderBatch(){
       <h3>Activity log</h3>
       <ul class="log">${ log.length ? log.map(e=>`
         <li><span class="d">${fmtDate(e.date)}</span>
-            <span class="tag ${e.type}">${e.type==="mv"?"Move":"Harvest"}</span>
+            <span class="tag ${e.type}">${e.type==="mv"?"Move":e.type==="hv"?"Harvest":"Ready"}</span>
             <span>${e.text}</span>
             <button class="del" onclick="deleteLog('${e.type}','${e.id}')">✕</button></li>`).join("")
         : `<li style="color:var(--muted)">Nothing yet — all ${b.blocks_total} blocks incubating since ${fmtDate(b.inoc_date)}.</li>` }
@@ -1098,6 +1127,7 @@ async function deleteBatch(id){
 }
 async function deleteLog(type,id){
   if(!confirm("Delete this entry?")) return;
+  if(type==="ready"){ await clearReadyDate(id); return; }
   await write(db.from(type==="mv"?"mn_movements":"mn_harvests").delete().eq("id",id),"Couldn't delete entry");
   renderBatch();
 }
@@ -1575,6 +1605,7 @@ async function loadSettings(){
     }
   }catch(e){ console.warn("mn_settings table not found — label settings will only stick on this device.",e); }
   renderCosts(); renderAnalytics();
+  if($("view-batch")?.classList.contains("active")) renderBatch();
 }
 /* Block-size → water(L) config used to back out dry substrate weight for costing/efficiency. */
 function applyBlockWaterConfig(map){
