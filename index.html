@@ -442,6 +442,7 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
       <div><label>From</label><select id="mv_from" onchange="moveFromChanged()"></select></div>
       <div><label>To</label><select id="mv_to"></select></div>
     </div>
+    <div id="mv_placeHint" style="display:none" class="note-banner">Use <b>Room → Place</b> instead for moving blocks into fruiting — it records the shelf location at the same time, and lets you pick the date too. This dialog is for state corrections and other transitions, not for the incubating → fruiting move.</div>
     <div id="mv_sizeWrap" style="display:none"><label>Block size</label><select id="mv_size" onchange="moveSizeChanged()"></select></div>
     <div class="row2">
       <div><label>How many</label><input type="number" id="mv_count" min="1"></div>
@@ -539,7 +540,7 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
 const SUPABASE_URL = "https://jckfsvjodrrauwvpecks.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impja2ZzdmpvZHJyYXV3dnBlY2tzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5ODk4NTgsImV4cCI6MjA5NjU2NTg1OH0.ECtXTPKstyRW3Q_au5oucobZ1Axw44SDZXz368wNi4g";
 const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-const APP_VERSION = "v3.4 · harvest-timing ETA badges + self-learning suggestions · 8 Jul 2026";
+const APP_VERSION = "v3.5 · backdate placements + Move-blocks no longer overlaps with Place · 8 Jul 2026";
 
 /* ================= APPEARANCE (per-user) + BRANDING (shared) ================= */
 const ACCENTS=[
@@ -662,7 +663,7 @@ let batches=[], movements=[], harvests=[], costs=[];
 let zones=[], bays=[], placements=[];
 let yieldDefaults=[]; // read-only — owned by Chef Orders (mn_yield_defaults), used here for harvest-timing ETAs
 let currentBatchId=null, editingId=null;
-let roomMode="view", placeBatchId=null, pendingPlaceSel=new Set();
+let roomMode="view", placeBatchId=null, pendingPlaceSel=new Set(), placeDate=todayISO();
 let removeSel=new Set();
 
 /* species colour palette — matched to actual mushroom appearance */
@@ -1199,8 +1200,9 @@ function openMove(batchId){
 function moveFromChanged(){
   const b=batches.find(x=>x.id===modalBatchId);
   const f=$("mv_from").value;
-  $("mv_to").innerHTML=STATE_ORDER.filter(s=>s!==f).map(s=>`<option value="${s}">${STATES[s].label}</option>`).join("");
-  if(f==="incubating") $("mv_to").value="fruiting";
+  const excludeFruiting = f==="incubating"; // that move needs a room location — use Place mode instead
+  $("mv_to").innerHTML=STATE_ORDER.filter(s=>s!==f && !(excludeFruiting&&s==="fruiting")).map(s=>`<option value="${s}">${STATES[s].label}</option>`).join("");
+  $("mv_placeHint").style.display = excludeFruiting ? "" : "none";
   if(f==="fruiting") $("mv_to").value="complete";
   // size dropdown only if this batch has multiple sizes AND >1 size sits in the 'from' state
   const sizes=sizesInState(b,f);
@@ -1301,6 +1303,7 @@ document.querySelectorAll("#roomModes button").forEach(b=>b.onclick=()=>{
   roomMode=b.dataset.mode;
   document.querySelectorAll("#roomModes button").forEach(x=>x.classList.toggle("active",x===b));
   if(roomMode!=="place"){ placeBatchId=null; pendingPlaceSel.clear(); }
+  else { placeDate=todayISO(); }
   removeSel.clear();
   renderRoom();
 });
@@ -1333,6 +1336,9 @@ function renderRoom(){
       <select id="placeSel" style="max-width:340px;width:auto" onchange="placeBatchSelChanged()">
         <option value="">— pick a batch —</option>${opts}
       </select>
+      <label style="font-size:13px;color:var(--muted);display:flex;align-items:center;gap:6px;margin:0">Date placed:
+        <input type="date" id="placeDate" value="${placeDate}" max="${todayISO()}" onchange="placeDate=this.value||todayISO()" style="width:auto">
+      </label>
       <span id="placeCount" style="font-size:13px;color:var(--muted)">tap empty slots to select</span>
       <button id="placeConfirmBtn" class="btn btn-primary btn-sm" style="display:none" onclick="confirmPlace()">Place <span id="placeConfirmN">0</span> blocks →</button>
     </div>`;
@@ -1478,7 +1484,7 @@ async function confirmPlace(){
     const bayNo=parseInt(m[1]), letter=m[2], slotNum=parseInt(m[3]);
     const bay=bays.find(b=>b.bay_no===bayNo);
     if(!bay) continue;
-    placementRows.push({bay_id:bay.id, slot_code:code, row_letter:letter, slot_num:slotNum, batch_id:placeBatchId, placed_date:todayISO()});
+    placementRows.push({bay_id:bay.id, slot_code:code, row_letter:letter, slot_num:slotNum, batch_id:placeBatchId, placed_date:placeDate});
   }
   // auto-create movement: incubating → fruiting
   // only move as many as are actually still incubating (some may have been manually moved already)
@@ -1489,10 +1495,10 @@ async function confirmPlace(){
     const sizes=sizesInState(b,"incubating");
     if(sizes.length<=1){
       const kg=sizes.length===1?sizes[0].kg:null;
-      movRows=[{batch_id:placeBatchId, move_date:todayISO(), from_state:"incubating", to_state:"fruiting", count:toMove, kg, note:"Auto: placed in fruiting chamber"}];
+      movRows=[{batch_id:placeBatchId, move_date:placeDate, from_state:"incubating", to_state:"fruiting", count:toMove, kg, note:"Auto: placed in fruiting chamber"}];
     } else {
       let rem=toMove;
-      for(const s of sizes){ if(rem<=0) break; const take=Math.min(rem,s.count); movRows.push({batch_id:placeBatchId, move_date:todayISO(), from_state:"incubating", to_state:"fruiting", count:take, kg:s.kg, note:"Auto: placed in fruiting chamber"}); rem-=take; }
+      for(const s of sizes){ if(rem<=0) break; const take=Math.min(rem,s.count); movRows.push({batch_id:placeBatchId, move_date:placeDate, from_state:"incubating", to_state:"fruiting", count:take, kg:s.kg, note:"Auto: placed in fruiting chamber"}); rem-=take; }
     }
   }
   try{
