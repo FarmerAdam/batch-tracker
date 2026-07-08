@@ -540,7 +540,7 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
 const SUPABASE_URL = "https://jckfsvjodrrauwvpecks.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impja2ZzdmpvZHJyYXV3dnBlY2tzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5ODk4NTgsImV4cCI6MjA5NjU2NTg1OH0.ECtXTPKstyRW3Q_au5oucobZ1Axw44SDZXz368wNi4g";
 const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-const APP_VERSION = "v3.5.1 · hotfix: script crashed on load (todayISO init order) · 8 Jul 2026";
+const APP_VERSION = "v3.6 · fixed timezone bug in todayISO (was landing a day early in Melbourne mornings) · 8 Jul 2026";
 
 /* ================= APPEARANCE (per-user) + BRANDING (shared) ================= */
 const ACCENTS=[
@@ -731,7 +731,7 @@ function speciesInk(sp){
 /* ================= HELPERS ================= */
 const $ = id => document.getElementById(id);
 const esc = s => (s??"").toString().replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-const todayISO = () => new Date().toISOString().slice(0,10);
+const todayISO = () => { const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
 const fmtDate = iso => { if(!iso) return "—"; const d=new Date(iso+"T00:00:00"); return d.toLocaleDateString("en-AU",{day:"2-digit",month:"2-digit",year:"2-digit"}); };
 const daysBetween = (a,b)=> Math.round((new Date(b)-new Date(a))/86400000);
 const fmtWeight = g => g>=1000 ? (g/1000).toFixed(g>=10000?1:2)+" kg" : Math.round(g)+" g";
