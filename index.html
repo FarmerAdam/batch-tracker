@@ -539,7 +539,7 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
 const SUPABASE_URL = "https://jckfsvjodrrauwvpecks.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impja2ZzdmpvZHJyYXV3dnBlY2tzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5ODk4NTgsImV4cCI6MjA5NjU2NTg1OH0.ECtXTPKstyRW3Q_au5oucobZ1Axw44SDZXz368wNi4g";
 const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-const APP_VERSION = "v3.3 · visible cost breakdown for diagnosis · 7 Jul 2026";
+const APP_VERSION = "v3.4 · harvest-timing ETA badges + self-learning suggestions · 8 Jul 2026";
 
 /* ================= APPEARANCE (per-user) + BRANDING (shared) ================= */
 const ACCENTS=[
@@ -660,6 +660,7 @@ const STATE_ORDER = ["incubating","fruiting","complete","contaminated","failed",
 
 let batches=[], movements=[], harvests=[], costs=[];
 let zones=[], bays=[], placements=[];
+let yieldDefaults=[]; // read-only — owned by Chef Orders (mn_yield_defaults), used here for harvest-timing ETAs
 let currentBatchId=null, editingId=null;
 let roomMode="view", placeBatchId=null, pendingPlaceSel=new Set();
 let removeSel=new Set();
@@ -745,6 +746,47 @@ function batchCounts(b){
   }
   return c;
 }
+function yieldFor(species){ return yieldDefaults.find(y=>y.species===species) || null; }
+async function applyHarvestSuggestion(species, lo, hi){
+  if(!confirm(`Update Chef Orders' "days to harvest" for ${species} to ${lo}\u2013${hi} days, based on your real harvest data? This changes what the Chef Orders availability board treats as ready.`)) return;
+  const {error} = await db.from("mn_yield_defaults").update({days_to_harvest_low:lo, days_to_harvest_high:hi, updated_at:new Date().toISOString()}).eq("species",species);
+  if(error){ alert("Couldn't update — "+error.message); return; }
+  await loadAll();
+}
+/* Same per-cohort FIFO approach as Chef Orders: a batch is often stocked into
+   fruiting in stages (e.g. 12 blocks Monday, more Wed/Thu from the same
+   inoculation), so each "move to fruiting" event gets its own start date.
+   Blocks that later leave fruiting are assumed to deplete the earliest-
+   arrived cohort first (the ones that started fruiting first are also the
+   ones that get picked/cleared first in practice). */
+function fruitingCohorts(batchId){
+  const inflow = movements.filter(m=>m.batch_id===batchId && m.to_state==="fruiting")
+    .sort((a,b)=> a.move_date < b.move_date ? -1 : 1)
+    .map(m=>({date:m.move_date, remaining:m.count||0}));
+  let outflow = movements.filter(m=>m.batch_id===batchId && m.from_state==="fruiting")
+    .reduce((s,m)=>s+(m.count||0),0);
+  for(const c of inflow){
+    if(outflow<=0) break;
+    const take = Math.min(c.remaining, outflow);
+    c.remaining -= take; outflow -= take;
+  }
+  return inflow.filter(c=>c.remaining>0);
+}
+/* Harvest-timing ETA for a batch's still-standing fruiting cohorts, using the
+   species' days_to_harvest range from Chef Orders' settings. Returns null if
+   no cohorts are fruiting, or no timing data exists yet for this species. */
+function harvestEta(b){
+  const yd = yieldFor(b.species);
+  if(!yd || yd.days_to_harvest_low==null) return null;
+  const cohorts = fruitingCohorts(b.id);
+  if(!cohorts.length) return null;
+  // most-advanced cohort (earliest date) determines the soonest anything could be ready
+  const earliest = cohorts.reduce((a,c)=> c.date<a.date?c:a);
+  const daysIn = daysBetween(earliest.date, todayISO());
+  const low = yd.days_to_harvest_low, high = yd.days_to_harvest_high ?? yd.days_to_harvest_low;
+  if(daysIn >= low) return {ready:true, text:"Ready now"};
+  return {ready:false, text:`Ready in ~${low-daysIn}d`};
+}
 /* counts per state, broken down by block size (kg). Returns {state:{kg:count,...}} */
 function batchCountsBySize(b){
   const ls=blockLines(b);
@@ -811,25 +853,28 @@ function batchCost(b){
 function blockCostExample(species,kg){ return subPerKg(species)*dryKgForLine({kg}) + perBlockExtras(species); }
 
 /* ================= DATA ================= */
-function cache(){ try{ localStorage.setItem("mn_cache", JSON.stringify({batches,movements,harvests,costs,zones,bays,placements})); }catch(e){} }
-function loadCache(){ try{ const d=JSON.parse(localStorage.getItem("mn_cache")); if(d){batches=d.batches||[];movements=d.movements||[];harvests=d.harvests||[];costs=d.costs||[];zones=d.zones||[];bays=d.bays||[];placements=d.placements||[];} }catch(e){} }
+function cache(){ try{ localStorage.setItem("mn_cache", JSON.stringify({batches,movements,harvests,costs,zones,bays,placements,yieldDefaults})); }catch(e){} }
+function loadCache(){ try{ const d=JSON.parse(localStorage.getItem("mn_cache")); if(d){batches=d.batches||[];movements=d.movements||[];harvests=d.harvests||[];costs=d.costs||[];zones=d.zones||[];bays=d.bays||[];placements=d.placements||[];yieldDefaults=d.yieldDefaults||[];} }catch(e){} }
 
 async function loadAll(){
   setSync("","Syncing…");
   try{
-    const [b,m,h,c,z,ba,pl] = await Promise.all([
+    const [b,m,h,c,z,ba,pl,yd] = await Promise.all([
       db.from("mn_batches").select("*").order("batch_no",{ascending:false}),
       db.from("mn_movements").select("*"),
       db.from("mn_harvests").select("*"),
       db.from("mn_costs").select("*"),
       db.from("mn_zones").select("*").order("sort_order"),
       db.from("mn_bays").select("*").order("sort_order"),
-      db.from("mn_placements").select("*")
+      db.from("mn_placements").select("*"),
+      db.from("mn_yield_defaults").select("*")
     ]);
     if(b.error||m.error||h.error||c.error) throw (b.error||m.error||h.error||c.error);
     batches=b.data; movements=m.data; harvests=h.data; costs=c.data;
     zones=z.error?[]:z.data; bays=ba.error?[]:ba.data; placements=pl.error?[]:pl.data;
     if(z.error) console.warn("Room tables not found yet — run setup_room.sql.",z.error);
+    yieldDefaults = yd.error ? [] : yd.data;
+    if(yd.error) console.warn("Yield defaults (Chef Orders table) not readable yet — harvest ETA badges will be hidden.",yd.error);
     cache(); setSync("ok","Synced");
   }catch(e){
     console.error(e); loadCache();
@@ -928,6 +973,7 @@ function cardHTML(b){
   const age=daysBetween(b.inoc_date,todayISO());
   const col=batchColumn(b);
   const canDrag=col==="incubating"||col==="ready";
+  const eta = c.fruiting>0 ? harvestEta(b) : null;
   return `<div class="card"${canDrag?` draggable="true" ondragstart="cardDragStart(event,'${b.id}')" ondragend="cardDragEnd(event)"`:""} onclick="openBatch('${b.id}')">
     <h3>${esc(b.name)} <span class="bno mono">#${b.batch_no}</span></h3>
     <div class="species">${esc(b.species)}${b.spawn_code?` · <span class="mono">${esc(b.spawn_code)}</span>`:""}</div>
@@ -937,6 +983,7 @@ function cardHTML(b){
       <span><b>${age}</b> days</span>
       <span style="color:var(--muted)">${countSummary(c,b)}</span>
       ${b.ready_date?`<span style="color:var(--st-ready)">Ready since ${fmtDate(b.ready_date)}</span>`:""}
+      ${eta?`<span style="color:${eta.ready?'var(--st-complete)':'var(--muted)'};font-weight:${eta.ready?'700':'400'}" title="Estimated from species harvest-timing settings">${eta.text}</span>`:""}
     </div>
   </div>`;
 }
@@ -1777,7 +1824,7 @@ function renderAnalytics(){
   }
   const rows=Object.entries(bySpecies).map(([sp,bs])=>{
     let inoc=0,toFruit=0,contam=0,failed=0,culled=0,yld=0,subKg=0,totalCost=0,costKnown=false,weightMissing=false;
-    let fruitDays=[],completeDays=[],readyDays=[];
+    let fruitDays=[],completeDays=[],readyDays=[],harvestGapDays=[];
     for(const b of bs){
       inoc+=totalBlocks(b); yld+=batchYield(b);
       const sk=dryKg(b); if(sk!=null) subKg+=sk; else if(totalBlocks(b)>0) weightMissing=true;
@@ -1792,6 +1839,13 @@ function renderAnalytics(){
       const ff=firstMoveTo(b,"fruiting");
       if(ff) fruitDays.push(daysBetween(b.inoc_date,ff));
       if(b.ready_date) readyDays.push(daysBetween(b.inoc_date,b.ready_date));
+      // learn actual fruiting→harvest timing: first harvest logged on/after this
+      // batch's first move-to-fruiting date, compared against the manually-set
+      // days_to_harvest range in Chef Orders' settings
+      if(ff){
+        const firstHarvestAfter = harvests.filter(h=>h.batch_id===b.id && h.harvest_date>=ff).map(h=>h.harvest_date).sort()[0];
+        if(firstHarvestAfter) harvestGapDays.push(daysBetween(ff,firstHarvestAfter));
+      }
     }
     const avg=a=>a.length?Math.round(a.reduce((s,x)=>s+x,0)/a.length):null;
     const wavg=a=>{const tw=a.reduce((s,x)=>s+x.w,0); return tw?Math.round(a.reduce((s,x)=>s+x.d*x.w,0)/tw):null;};
@@ -1802,10 +1856,19 @@ function renderAnalytics(){
     const retailMargin=(costKg!=null&&retail!=null)?retail-costKg:null;
     const yPerKgSub=(subKg>0)?Math.round(yld/subKg):null;       // g yield per kg substrate
     const bePct=(subKg>0)?Math.round((yld/1000)/subKg*100):null; // simple efficiency %
+    const avgHarvestGap=avg(harvestGapDays), harvestGapN=harvestGapDays.length;
+    const yd=yieldFor(sp);
+    let harvestSuggestion=null;
+    if(harvestGapN>=3 && yd?.days_to_harvest_low!=null){
+      const lo=Math.min(...harvestGapDays), hi=Math.max(...harvestGapDays);
+      const differs = lo<yd.days_to_harvest_low-1 || hi>(yd.days_to_harvest_high??yd.days_to_harvest_low)+1;
+      if(differs) harvestSuggestion={lo,hi,n:harvestGapN,configuredLo:yd.days_to_harvest_low,configuredHi:yd.days_to_harvest_high??yd.days_to_harvest_low};
+    }
     return {sp,batches:bs.length,inoc,toFruit,contam,failed,yld,subKg,
       pctFruit:inoc?Math.round(toFruit/inoc*100):0, pctContam:inoc?Math.round(contam/inoc*100):0,
       pctFailed:inoc?Math.round(failed/inoc*100):0,
       avgFruit:avg(fruitDays), avgComplete:wavg(completeDays), avgReady:avg(readyDays), readyCount:readyDays.length,
+      avgHarvestGap, harvestGapN, harvestSuggestion,
       gPerBlock:toFruit&&yld?Math.round(yld/toFruit):null, yPerKgSub, bePct,
       costKg, sale, margin, retail, retailMargin, weightMissing};
   });
@@ -1816,7 +1879,7 @@ function renderAnalytics(){
   const anyMissing=rows.some(r=>r.weightMissing);
   $("analyticsWrap").innerHTML=`<div class="tablewrap"><table>
     <tr><th></th><th>Species</th><th>Batches</th><th>Blocks inoc</th><th>→ Fruiting</th><th>Contam</th><th>No colonise</th>
-        <th>Avg days → fruit</th><th title="Manually logged 'ready to fruit' date, independent of when blocks are physically moved to the fruiting chamber">Avg days → ready</th><th>Avg days → done</th><th title="Dry substrate weight — water backed out of the finished block weight">Dry substrate</th><th>Total yield</th><th>g / fruited block</th><th>Yield/kg sub</th><th title="Biological efficiency — fresh yield ÷ dry substrate weight">Efficiency</th>
+        <th>Avg days → fruit</th><th title="Real observed time from first move-to-fruiting to first harvest logged — learns as you log more harvests">Fruiting → harvest (actual)</th><th title="Manually logged 'ready to fruit' date, independent of when blocks are physically moved to the fruiting chamber">Avg days → ready</th><th>Avg days → done</th><th title="Dry substrate weight — water backed out of the finished block weight">Dry substrate</th><th>Total yield</th><th>g / fruited block</th><th>Yield/kg sub</th><th title="Biological efficiency — fresh yield ÷ dry substrate weight">Efficiency</th>
         <th>Cost / kg</th><th>Wholesale $/kg</th><th>Wholesale margin</th><th>Retail $/kg</th><th>Retail margin</th></tr>
     ${rows.map(r=>{const spEsc=esc(r.sp).replace(/'/g,"\\'");return `<tr ondragover="speciesDragOver(event)" ondrop="speciesDrop(event,'${spEsc}')">
       <td style="text-align:center"><span class="drag-handle" draggable="true" title="Drag to reorder" ondragstart="speciesDragStart(event,'${spEsc}')" ondragend="speciesDragEnd(event)">&#9776;</span></td>
@@ -1825,6 +1888,7 @@ function renderAnalytics(){
       <td>${r.contam?`${r.contam} (${r.pctContam}%)`:"0"}</td>
       <td>${r.failed?`${r.failed} (${r.pctFailed}%)`:"0"}</td>
       <td>${r.avgFruit??"—"}</td>
+      <td>${r.avgHarvestGap!=null?r.avgHarvestGap+` days (n=${r.harvestGapN})`:"—"}${r.harvestSuggestion?`<div style="margin-top:4px"><button class="btn btn-sm btn-primary" title="Chef Orders is currently set to ${r.harvestSuggestion.configuredLo}–${r.harvestSuggestion.configuredHi} days" onclick="applyHarvestSuggestion('${spEsc}',${r.harvestSuggestion.lo},${r.harvestSuggestion.hi})">Update to ${r.harvestSuggestion.lo}–${r.harvestSuggestion.hi}d?</button></div>`:""}</td>
       <td>${r.avgReady!=null?r.avgReady+` (n=${r.readyCount})`:"—"}</td>
       <td>${r.avgComplete??"—"}</td>
       <td>${r.subKg>0?(r.subKg%1?r.subKg.toFixed(1):r.subKg)+" kg":"—"}</td>
@@ -1837,7 +1901,8 @@ function renderAnalytics(){
       <td>${r.retail!=null?money(r.retail):"—"}</td>
       <td class="${r.retailMargin==null?"":r.retailMargin<0?"neg":"pos"}">${r.retailMargin!=null?money(r.retailMargin):"—"}</td>
     </tr>`;}).join("")}
-  </table></div>${anyMissing?`<div class="note-banner" style="margin-top:12px">* Some batches don't have block weights recorded, so their substrate cost isn't counted — those species' cost/kg and efficiency are understated until you edit the batch and add block sizes.</div>`:""}`;
+  </table></div>${anyMissing?`<div class="note-banner" style="margin-top:12px">* Some batches don't have block weights recorded, so their substrate cost isn't counted — those species' cost/kg and efficiency are understated until you edit the batch and add block sizes.</div>`:""}
+  <div class="note-banner" style="margin-top:12px">"Fruiting → harvest (actual)" learns from your own data — once at least 3 harvests are logged for a species and the real timing meaningfully differs from what's configured in Chef Orders, you'll see an "Update to Xd?" button here. Nothing changes automatically; it's a suggestion you approve.</div>`;
 }
 
 /* ================= COSTS ================= */
