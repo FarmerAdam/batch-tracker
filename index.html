@@ -171,6 +171,9 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
 .seg button.active[data-mode="remove"]{background:var(--danger);border-color:var(--danger)}
 
 /* room */
+#placeBanner{position:sticky;top:var(--header-h,92px);z-index:40}
+#placeBanner .note-banner{margin-bottom:14px;box-shadow:0 3px 10px rgba(42,36,27,.14)}
+[data-theme="dark"] #placeBanner .note-banner{box-shadow:0 3px 10px rgba(0,0,0,.35)}
 .zone{margin-bottom:22px}
 .zone-head{display:flex;align-items:baseline;gap:10px;margin-bottom:10px;padding-bottom:6px;border-bottom:2px solid var(--line)}
 .zone-head h2{font-size:18px;text-transform:uppercase;letter-spacing:.6px}
@@ -305,7 +308,7 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
       <button data-mode="remove">Remove</button>
     </div>
     <div class="spacer"></div>
-    <button class="btn btn-sm" onclick="showView('roomsetup')">⚙ Room setup</button>
+    <button class="btn btn-sm" onclick="openRoomSetup()">⚙ Room setup</button>
   </div>
   <div id="placeBanner"></div>
   <div id="roomStats" class="statline"></div>
@@ -321,7 +324,7 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
   </div>
   <div class="note-banner">Build your room: add zones (walls / centre island), then bays. Each bay's rows become letters (A, B, C…) and slots run left to right. Edit any number any time — existing placements stay put.</div>
   <div id="setupWrap"></div>
-  <div style="margin-top:14px"><button class="btn btn-primary" onclick="addZone()">＋ Add zone</button></div>
+  <div id="setupActions" style="margin-top:14px"></div>
 </section>
 
 <!-- NEW / EDIT FORM -->
@@ -534,13 +537,12 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
     </div>
   </div>
 </div>
-
 <script>
 /* ================= CONFIG ================= */
 const SUPABASE_URL = "https://jckfsvjodrrauwvpecks.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impja2ZzdmpvZHJyYXV3dnBlY2tzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5ODk4NTgsImV4cCI6MjA5NjU2NTg1OH0.ECtXTPKstyRW3Q_au5oucobZ1Axw44SDZXz368wNi4g";
 const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-const APP_VERSION = "v3.6 · fixed timezone bug in todayISO (was landing a day early in Melbourne mornings) · 8 Jul 2026";
+const APP_VERSION = "v3.7 \u00b7 sticky Place/Harvest/Remove banner while scrolling in Room view \u00b7 Room setup now opens to a read-only summary with a dedicated Edit room button, so it no longer creates a zone just to let you edit \u00b7 12 Jul 2026";
 
 /* ================= APPEARANCE (per-user) + BRANDING (shared) ================= */
 const ACCENTS=[
@@ -665,6 +667,7 @@ let yieldDefaults=[]; // read-only — owned by Chef Orders (mn_yield_defaults),
 let currentBatchId=null, editingId=null;
 let roomMode="view", placeBatchId=null, pendingPlaceSel=new Set(), placeDate=null;
 let removeSel=new Set();
+let roomSetupEditing=false;
 
 /* species colour palette — matched to actual mushroom appearance */
 const SPECIES_NAMED = {
@@ -941,7 +944,7 @@ function renderPipeline(){
   const cols = {incubating:[],ready:[],fruiting:[],complete:[]};
   for(const b of batches){
     if(b.archived) continue;
-    const hay = [b.name,b.species,b.scientific,b.substrate,b.spawn_code,b.method,"#"+b.batch_no].join(" ").toLowerCase();
+    const hay = [b.name,b.species,b.substrate,b.spawn_code,b.method,"#"+b.batch_no].join(" ").toLowerCase();
     if(q && !hay.includes(q)) continue;
     cols[batchColumn(b)].push(b);
   }
@@ -1321,7 +1324,7 @@ function renderRoom(){
   document.getElementById("view-room").className="view"+(document.getElementById("view-room").classList.contains("active")?" active":"");
   const wrap=$("roomWrap");
   if(!zones.length){
-    wrap.innerHTML=`<div class="empty">No room set up yet.<br><br><button class="btn btn-primary" onclick="seedRoom()">Build my room automatically</button> &nbsp; or <button class="btn" onclick="showView('roomsetup')">set up manually</button><br><br><span style="font-size:13px">The auto-build creates your 2 walls (3 bays × 9 rows × 6) and centre island (5 rows × 24). Editable after.</span></div>`;
+    wrap.innerHTML=`<div class="empty">No room set up yet.<br><br><button class="btn btn-primary" onclick="seedRoom()">Build my room automatically</button> &nbsp; or <button class="btn" onclick="openRoomSetup()">set up manually</button><br><br><span style="font-size:13px">The auto-build creates your 2 walls (3 bays × 9 rows × 6) and centre island (5 rows × 24). Editable after.</span></div>`;
     $("roomStats").innerHTML=""; $("placeBanner").innerHTML=""; return;
   }
   // mode class
@@ -1566,9 +1569,36 @@ async function removeSelected(){
 }
 
 /* ===== Room setup ===== */
+function openRoomSetup(){
+  roomSetupEditing=false;
+  renderSetup();
+  showView("roomsetup");
+}
+function startRoomEdit(){ roomSetupEditing=true; renderSetup(); }
+function finishRoomEdit(){ roomSetupEditing=false; renderSetup(); }
 function renderSetup(){
   const wrap=$("setupWrap");
-  if(!zones.length){ wrap.innerHTML=`<div class="empty">No zones yet. Add one below, or <button class="btn btn-sm" onclick="seedRoom()">auto-build my room</button>.</div>`; return; }
+  const actions=$("setupActions");
+  if(!zones.length){
+    wrap.innerHTML=`<div class="empty">No zones yet. Add one below, or <button class="btn btn-sm" onclick="seedRoom()">auto-build my room</button>.</div>`;
+    if(actions) actions.innerHTML=`<button class="btn btn-primary" onclick="addZone()">＋ Add zone</button>`;
+    return;
+  }
+  if(!roomSetupEditing){
+    // read-only summary — just browsing this view never creates anything
+    wrap.innerHTML = zones.slice().sort((a,b)=>a.sort_order-b.sort_order).map(z=>{
+      const zb=baysOf(z);
+      return `<div class="setup-zone">
+        <div class="zrow" style="align-items:center;margin-bottom:0">
+          <div><b>${esc(z.name)}</b>${z.block_kg?` <span style="color:var(--muted);font-size:13px">· ${z.block_kg}kg blocks</span>`:""}</div>
+          <div style="color:var(--muted);font-size:13px">${zb.length?zb.map(bay=>`Bay ${bay.bay_no} (${bay.rows}×${bay.slots_per_row})`).join(", "):"No bays yet"}</div>
+        </div>
+      </div>`;
+    }).join("");
+    if(actions) actions.innerHTML=`<button class="btn btn-primary" onclick="startRoomEdit()">✎ Edit room</button>`;
+    return;
+  }
+  // editing mode — full zone/bay editor
   wrap.innerHTML = zones.slice().sort((a,b)=>a.sort_order-b.sort_order).map(z=>{
     const zb=baysOf(z);
     return `<div class="setup-zone">
@@ -1590,9 +1620,11 @@ function renderSetup(){
       <button class="btn btn-sm" style="margin-top:6px" onclick="addBay('${z.id}')">＋ Add bay to ${esc(z.name)}</button>
     </div>`;
   }).join("");
+  if(actions) actions.innerHTML=`<button class="btn btn-primary" onclick="addZone()">＋ Add zone</button> <button class="btn btn-sm" onclick="finishRoomEdit()">Done editing</button>`;
 }
 async function addZone(){
   const n=zones.length;
+  roomSetupEditing=true;
   await write(db.from("mn_zones").insert({name:"New zone",sort_order:n}),"Couldn't add zone");
   renderSetup();
 }
@@ -2070,6 +2102,19 @@ function applyUserToUI(user){
   const syncEl=$("sync");
   if(syncEl) syncEl.title="Signed in as "+user.email;
 }
+
+/* ================= STICKY OFFSET (keeps sticky room banner clear of the sticky header) ================= */
+function updateStickyOffsets(){
+  const h=document.querySelector("header");
+  if(h) document.documentElement.style.setProperty("--header-h", h.offsetHeight+"px");
+}
+if(window.ResizeObserver){
+  const _headerEl=document.querySelector("header");
+  if(_headerEl) new ResizeObserver(updateStickyOffsets).observe(_headerEl);
+} else {
+  window.addEventListener("resize", updateStickyOffsets);
+}
+updateStickyOffsets();
 
 /* ================= BOOT ================= */
 function renderAll(){
