@@ -366,8 +366,13 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
 
 <!-- ANALYTICS -->
 <section class="view" id="view-analytics">
-  <div class="toolbar"><h2 style="font-size:22px">Species performance</h2><div class="spacer"></div></div>
-  <div class="note-banner">All-time figures across every batch (archived included). Cost/kg counts every inoculated block — including contaminated and failed ones — as cost against the yield that actually came off, which is the honest number for pricing. Substrate cost scales with each block's real weight. Set figures in the Costs tab.</div>
+  <div class="toolbar"><h2 style="font-size:22px">Species performance</h2><div class="spacer"></div>
+    <div class="seg" id="analyticsViewSeg">
+      <button data-view="completed" onclick="setAnalyticsView('completed')">Completed cycles</button>
+      <button data-view="lifetime" onclick="setAnalyticsView('lifetime')">All blocks (lifetime)</button>
+    </div>
+  </div>
+  <div class="note-banner" id="analyticsNote"></div>
   <div id="analyticsWrap"></div>
 </section>
 
@@ -855,6 +860,39 @@ function batchCost(b){
   return {cost:extras+sub, hasWeight:kg!=null, kg};
 }
 function blockCostExample(species,kg){ return subPerKg(species)*dryKgForLine({kg}) + perBlockExtras(species); }
+
+/* "Completed cycles" analytics view — only counts blocks that have left both
+   incubating and fruiting (i.e. their final outcome is known: harvested out,
+   contaminated, failed to colonise, or culled). Blocks still colonising or
+   still fruiting are excluded from cost/yield-efficiency math until they
+   resolve, so in-progress batches don't drag down honest per-species figures
+   before they've had a chance to produce anything. */
+const RESOLVED_STATES = ["complete","contaminated","failed","culled"];
+function resolvedBlockCount(b){
+  const c=batchCounts(b);
+  return RESOLVED_STATES.reduce((s,st)=>s+Math.max(0,c[st]||0),0);
+}
+/* blocks that reached fruiting AND have since left it (so their fruiting
+   cycle is fully accounted for) — used as the denominator for g/fruited
+   block in Completed view, instead of every block ever moved to fruiting. */
+function resolvedFruitedCount(b){
+  const toFruitCum = movements.filter(m=>m.batch_id===b.id&&m.to_state==="fruiting").reduce((s,m)=>s+(m.count||0),0);
+  const stillFruiting = Math.max(0, batchCounts(b).fruiting||0);
+  return Math.max(0, toFruitCum-stillFruiting);
+}
+function resolvedSubKg(b){
+  const ls=blockLines(b); if(!ls) return null;
+  let kg=0;
+  for(const st of RESOLVED_STATES){ for(const {kg:sizeKg,count} of sizesInState(b,st)){ kg+=count*dryKgForLine({kg:sizeKg}); } }
+  return kg;
+}
+function resolvedBatchCost(b){
+  const c=costRow(b.species); if(!c) return null;
+  const blocks=resolvedBlockCount(b), kg=resolvedSubKg(b);
+  const extras=perBlockExtras(b.species)*blocks;
+  const sub=(kg!=null)?subPerKg(b.species)*kg:0;
+  return {cost:extras+sub, hasWeight:kg!=null, kg};
+}
 
 /* ================= DATA ================= */
 function cache(){ try{ localStorage.setItem("mn_cache", JSON.stringify({batches,movements,harvests,costs,zones,bays,placements,yieldDefaults})); }catch(e){} }
@@ -1854,7 +1892,17 @@ function printLabels(){
 window.addEventListener("afterprint",()=>{ document.body.classList.remove("printing-labels"); });
 
 /* ================= ANALYTICS ================= */
+let analyticsView = localStorage.getItem("mn_analyticsview")||"completed"; // "completed" | "lifetime"
+function setAnalyticsView(v){ analyticsView=v; try{localStorage.setItem("mn_analyticsview",v);}catch(e){} renderAnalytics(); }
+
 function renderAnalytics(){
+  const seg=$("analyticsViewSeg");
+  if(seg) for(const btn of seg.querySelectorAll("button")) btn.classList.toggle("active", btn.dataset.view===analyticsView);
+  const completed = analyticsView==="completed";
+  $("analyticsNote").innerHTML = completed
+    ? `<b>Completed cycles</b> — only counts blocks whose outcome is known (harvested out, contaminated, failed to colonise, or culled). Blocks still colonising or still fruiting are left out of cost/yield/efficiency until they resolve, so young batches don't drag down the numbers before they've had a chance to produce anything. Contaminated and failed blocks still count as sunk cost against yield — that's the honest number for pricing. Switch to "All blocks" for the full-history tally including active batches.`
+    : `<b>All blocks (lifetime)</b> — every inoculated block ever, including ones still colonising or fruiting right now. Cost/kg counts every block — including contaminated and failed ones — as cost against the yield that actually came off. Useful for a full-history view, but active batches that haven't yielded yet will pull efficiency and cost/kg down until they finish. Switch to "Completed cycles" for a view that isn't skewed by in-progress blocks.`;
+
   const bySpecies={};
   for(const b of batches){
     const k=b.species||"(unknown)";
@@ -1862,11 +1910,20 @@ function renderAnalytics(){
   }
   const rows=Object.entries(bySpecies).map(([sp,bs])=>{
     let inoc=0,toFruit=0,contam=0,failed=0,culled=0,yld=0,subKg=0,totalCost=0,costKnown=false,weightMissing=false;
+    let fruitedDenom=0;
     let fruitDays=[],completeDays=[],readyDays=[],harvestGapDays=[];
     for(const b of bs){
       inoc+=totalBlocks(b); yld+=batchYield(b);
-      const sk=dryKg(b); if(sk!=null) subKg+=sk; else if(totalBlocks(b)>0) weightMissing=true;
-      const bc=batchCost(b); if(bc){ totalCost+=bc.cost; costKnown=true; if(!bc.hasWeight) weightMissing=true; }
+
+      if(completed){
+        const sk=resolvedSubKg(b); if(sk!=null) subKg+=sk; else if(resolvedBlockCount(b)>0) weightMissing=true;
+        const bc=resolvedBatchCost(b); if(bc){ totalCost+=bc.cost; costKnown=true; if(!bc.hasWeight && resolvedBlockCount(b)>0) weightMissing=true; }
+        fruitedDenom+=resolvedFruitedCount(b);
+      } else {
+        const sk=dryKg(b); if(sk!=null) subKg+=sk; else if(totalBlocks(b)>0) weightMissing=true;
+        const bc=batchCost(b); if(bc){ totalCost+=bc.cost; costKnown=true; if(!bc.hasWeight) weightMissing=true; }
+      }
+
       for(const m of movements.filter(m=>m.batch_id===b.id)){
         if(m.to_state==="fruiting") toFruit+=m.count;
         if(m.to_state==="contaminated") contam+=m.count;
@@ -1894,6 +1951,7 @@ function renderAnalytics(){
     const retailMargin=(costKg!=null&&retail!=null)?retail-costKg:null;
     const yPerKgSub=(subKg>0)?Math.round(yld/subKg):null;       // g yield per kg substrate
     const bePct=(subKg>0)?Math.round((yld/1000)/subKg*100):null; // simple efficiency %
+    const gPerBlockDenom = completed ? fruitedDenom : toFruit;
     const avgHarvestGap=avg(harvestGapDays), harvestGapN=harvestGapDays.length;
     const yd=yieldFor(sp);
     let harvestSuggestion=null;
@@ -1907,7 +1965,7 @@ function renderAnalytics(){
       pctFailed:inoc?Math.round(failed/inoc*100):0,
       avgFruit:avg(fruitDays), avgComplete:wavg(completeDays), avgReady:avg(readyDays), readyCount:readyDays.length,
       avgHarvestGap, harvestGapN, harvestSuggestion,
-      gPerBlock:toFruit&&yld?Math.round(yld/toFruit):null, yPerKgSub, bePct,
+      gPerBlock:gPerBlockDenom&&yld?Math.round(yld/gPerBlockDenom):null, yPerKgSub, bePct,
       costKg, sale, margin, retail, retailMargin, weightMissing};
   });
   const order=orderedCostSpecies();
@@ -1917,7 +1975,7 @@ function renderAnalytics(){
   const anyMissing=rows.some(r=>r.weightMissing);
   $("analyticsWrap").innerHTML=`<div class="tablewrap"><table>
     <tr><th></th><th>Species</th><th>Batches</th><th>Blocks inoc</th><th>→ Fruiting</th><th>Contam</th><th>No colonise</th>
-        <th>Avg days → fruit</th><th title="Real observed time from first move-to-fruiting to first harvest logged — learns as you log more harvests">Fruiting → harvest (actual)</th><th title="Manually logged 'ready to fruit' date, independent of when blocks are physically moved to the fruiting chamber">Avg days → ready</th><th>Avg days → done</th><th title="Dry substrate weight — water backed out of the finished block weight">Dry substrate</th><th>Total yield</th><th>g / fruited block</th><th>Yield/kg sub</th><th title="Biological efficiency — fresh yield ÷ dry substrate weight">Efficiency</th>
+        <th>Avg days → fruit</th><th title="Real observed time from first move-to-fruiting to first harvest logged — learns as you log more harvests">Fruiting → harvest (actual)</th><th title="Manually logged 'ready to fruit' date, independent of when blocks are physically moved to the fruiting chamber">Avg days → ready</th><th>Avg days → done</th><th title="Dry substrate weight — water backed out of the finished block weight">Dry substrate</th><th>Total yield</th><th title="${completed?"Yield ÷ blocks that reached fruiting and have since finished their cycle":"Yield ÷ every block ever moved to fruiting, including ones still fruiting now"}">g / fruited block</th><th>Yield/kg sub</th><th title="Biological efficiency — fresh yield ÷ dry substrate weight">Efficiency</th>
         <th>Cost / kg</th><th>Wholesale $/kg</th><th>Wholesale margin</th><th>Retail $/kg</th><th>Retail margin</th></tr>
     ${rows.map(r=>{const spEsc=esc(r.sp).replace(/'/g,"\\'");return `<tr ondragover="speciesDragOver(event)" ondrop="speciesDrop(event,'${spEsc}')">
       <td style="text-align:center"><span class="drag-handle" draggable="true" title="Drag to reorder" ondragstart="speciesDragStart(event,'${spEsc}')" ondragend="speciesDragEnd(event)">&#9776;</span></td>
