@@ -484,13 +484,9 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
     <label>Date</label><input type="date" id="hv_date">
     <label>Note (optional)</label><input id="hv_note" placeholder="e.g. great caps">
     <div class="chips">
-      <button class="chip" onclick="addChip('Perfect harvest')">Perfect harvest</button>
-      <button class="chip" onclick="addChip('Great caps')">Great caps</button>
+      <button class="chip" onclick="addChip('Partial harvest')">Partial Harvest</button>
       <button class="chip" onclick="addChip('Trimmed')">Trimmed</button>
       <button class="chip" onclick="addChip('Un-trimmed')">Un-trimmed</button>
-      <button class="chip" onclick="addChip('Small fruits')">Small fruits</button>
-      <button class="chip" onclick="addChip('Some aborts')">Some aborts</button>
-      <button class="chip" onclick="addChip('Partial harvest')">Partial Harvest</button>
       <button class="chip" onclick="addChip('Aborted fruits')">Aborted Fruits</button>
       <button class="chip" onclick="addChip('Uniform caps')">Uniform Caps</button>
       <button class="chip" onclick="addChip('Full pin-set')">Full Pin-Set</button>
@@ -577,7 +573,7 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
 const SUPABASE_URL = "https://jckfsvjodrrauwvpecks.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impja2ZzdmpvZHJyYXV3dnBlY2tzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5ODk4NTgsImV4cCI6MjA5NjU2NTg1OH0.ECtXTPKstyRW3Q_au5oucobZ1Axw44SDZXz368wNi4g";
 const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-const APP_VERSION = "v3.10 \u00b7 Added Un-trimmed, Partial Harvest, Aborted Fruits, Uniform Caps, Full Pin-Set, Juvenile Harvest and Block Fell auto-fill chips to the harvest note \u00b7 30 Jul 2026";
+const APP_VERSION = "v3.10 \u00b7 Replaced harvest note auto-fill chips with Partial Harvest, Trimmed, Un-trimmed, Aborted Fruits, Uniform Caps, Full Pin-Set, Juvenile Harvest, Block Fell \u00b7 30 Jul 2026";
 
 /* ================= APPEARANCE (per-user) + BRANDING (shared) ================= */
 const ACCENTS=[
