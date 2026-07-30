@@ -172,7 +172,7 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
 .seg button.active[data-mode="rearrange"]{background:var(--st-ready);border-color:var(--st-ready)}
 
 /* room */
-#placeBanner{position:sticky;top:var(--header-h,92px);z-index:40}
+#roomTopBar{position:sticky;top:var(--header-h,92px);z-index:40;background:var(--bg);padding-top:2px;padding-bottom:4px}
 #placeBanner .note-banner{margin-bottom:14px;box-shadow:0 3px 10px rgba(42,36,27,.14)}
 [data-theme="dark"] #placeBanner .note-banner{box-shadow:0 3px 10px rgba(0,0,0,.35)}
 .zone{margin-bottom:22px}
@@ -305,18 +305,20 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
 
 <!-- ROOM -->
 <section class="view" id="view-room">
-  <div class="toolbar">
-    <div class="seg" id="roomModes">
-      <button data-mode="view" class="active">View</button>
-      <button data-mode="place">Place</button>
-      <button data-mode="harvest">Harvest</button>
-      <button data-mode="remove">Remove</button>
-      <button data-mode="rearrange">Rearrange</button>
+  <div id="roomTopBar">
+    <div class="toolbar" style="margin-bottom:8px">
+      <div class="seg" id="roomModes">
+        <button data-mode="view" class="active">View</button>
+        <button data-mode="place">Place</button>
+        <button data-mode="harvest">Harvest</button>
+        <button data-mode="remove">Remove</button>
+        <button data-mode="rearrange">Rearrange</button>
+      </div>
+      <div class="spacer"></div>
+      <button class="btn btn-sm" onclick="openRoomSetup()">⚙ Room setup</button>
     </div>
-    <div class="spacer"></div>
-    <button class="btn btn-sm" onclick="openRoomSetup()">⚙ Room setup</button>
+    <div id="placeBanner"></div>
   </div>
-  <div id="placeBanner"></div>
   <div id="roomStats" class="statline"></div>
   <div id="roomWrap"></div>
   <div id="removeBar" class="remove-bar"></div>
@@ -506,6 +508,21 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
   </div>
 </div>
 
+<!-- SLOT DETAIL MODAL -->
+<div class="modal-bg" id="slotModal">
+  <div class="modal">
+    <h3 id="slot_title">Block detail</h3>
+    <div class="sub" id="slot_sub" style="margin-bottom:14px"></div>
+    <div class="statline" id="slot_stats" style="margin-bottom:14px"></div>
+    <div id="slot_log"></div>
+    <div class="actions">
+      <button class="btn btn-primary" onclick="slotDetailLogHarvest()">Log harvest</button>
+      <button class="btn" onclick="slotDetailViewBatch()">View full batch</button>
+    </div>
+    <div style="text-align:center;margin-top:10px"><button class="btn btn-sm" onclick="closeModal('slotModal')">Close</button></div>
+  </div>
+</div>
+
 <!-- PREFERENCES MODAL -->
 <div class="modal-bg" id="prefsModal">
   <div class="modal">
@@ -553,7 +570,7 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
 const SUPABASE_URL = "https://jckfsvjodrrauwvpecks.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impja2ZzdmpvZHJyYXV3dnBlY2tzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5ODk4NTgsImV4cCI6MjA5NjU2NTg1OH0.ECtXTPKstyRW3Q_au5oucobZ1Axw44SDZXz368wNi4g";
 const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-const APP_VERSION = "v3.8 \u00b7 Flush number now suggests per physical block, not per batch \u00b7 new Room \u2192 Rearrange mode: drag a placed block onto an empty slot to move it, or onto another block to swap them \u00b7 30 Jul 2026";
+const APP_VERSION = "v3.9 \u00b7 Room top bar (mode switcher + Room setup) now stays floated whenever you're in Room, not just the banner \u00b7 tapping a block in View mode shows that block's own harvest history instead of the whole batch \u00b7 Rearrange hardened against overlapping drags, with stuck-block detection & one-tap recovery \u00b7 30 Jul 2026";
 
 /* ================= APPEARANCE (per-user) + BRANDING (shared) ================= */
 const ACCENTS=[
@@ -1407,6 +1424,17 @@ function renderRoom(){
   } else if(roomMode==="rearrange"){
     pb.innerHTML=`<div class="note-banner">Drag a block onto an empty slot to move it there, or onto another block to swap the two. Harvest history travels with the block — nothing else changes.</div>`;
   } else pb.innerHTML="";
+  // stuck/orphaned placements (a swap that failed partway through) — shown in
+  // every mode so it's never silently missed. Nothing has been deleted:
+  // batches, movements and harvests are all untouched, the block just isn't
+  // showing on any shelf until it's cleared.
+  const orphans=orphanedPlacements();
+  if(orphans.length){
+    pb.innerHTML += `<div class="note-banner" style="border-color:#E5C5BE;background:#FBEEEA;color:var(--danger)">
+      ⚠ ${orphans.length} block${orphans.length===1?"":"s"} got stuck mid-move and ${orphans.length===1?"isn't":"aren't"} showing on any shelf right now. Nothing was deleted — batch, movement and harvest data are all intact.
+      ${orphans.map(o=>{const b=batches.find(x=>x.id===o.batch_id); return `<div style="margin-top:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap"><b>${esc(b?.name||"?")}</b> <span class="mono">#${b?.batch_no??"?"}</span><button class="btn btn-sm" onclick="recoverOrphan('${o.id}')">Clear from shelf</button></div>`;}).join("")}
+    </div>`;
+  }
   // stats
   const s=roomStats();
   $("roomStats").innerHTML=`
@@ -1512,10 +1540,37 @@ function slotTap(bayId,letter,n){
     if(!p){ return; }
     toggleSel(code);
   } else {
-    // view mode → jump to the batch
-    if(p) openBatch(p.batch_id);
+    // view mode → show this specific block's own harvest detail
+    if(p) openSlotDetail(bay.id,letter,n);
   }
 }
+
+/* ===== Slot detail: what THIS physical block has yielded, not the whole batch ===== */
+let slotDetailCode=null, slotDetailBatchId=null;
+function openSlotDetail(bayId,letter,n){
+  const bay=bays.find(x=>x.id===bayId);
+  const code=slotCode(bay,letter,n);
+  const p=placementAt(code);
+  if(!p) return;
+  const b=batches.find(x=>x.id===p.batch_id);
+  const hs=harvests.filter(h=>h.slot_code===code && h.batch_id===p.batch_id && (!p.removed_date||h.harvest_date<=p.removed_date))
+    .sort((a,x)=> a.harvest_date===x.harvest_date ? (a.created_at<x.created_at?1:-1) : (a.harvest_date<x.harvest_date?1:-1));
+  const totalY=hs.reduce((s,h)=>s+Number(h.weight_g),0);
+  const days=daysBetween(p.placed_date,todayISO());
+  slotDetailCode=code; slotDetailBatchId=p.batch_id;
+  $("slot_title").textContent=`${b?.name||"?"} #${b?.batch_no??"?"} · ${code}`;
+  $("slot_sub").textContent=`${b?.species||""}${b?.spawn_code?` · ${b.spawn_code}`:""} · placed ${fmtDate(p.placed_date)}`;
+  $("slot_stats").innerHTML=`
+    <div class="stat"><div class="n">${fmtWeight(totalY)}</div><div class="l">Yield from this block</div></div>
+    <div class="stat"><div class="n">${hs.length}</div><div class="l">Harvests</div></div>
+    <div class="stat"><div class="n">${days}</div><div class="l">Days on shelf</div></div>`;
+  $("slot_log").innerHTML = hs.length
+    ? `<ul class="log">${hs.map(h=>`<li><span class="d">${fmtDate(h.harvest_date)}</span><span>${fmtWeight(Number(h.weight_g))}${h.flush?` · flush ${h.flush}`:""}${h.note?` — ${esc(h.note)}`:""}</span></li>`).join("")}</ul>`
+    : `<div style="color:var(--muted);font-size:14px">No harvests logged from this block yet.</div>`;
+  openModal("slotModal");
+}
+function slotDetailLogHarvest(){ closeModal("slotModal"); openHarvest(slotDetailBatchId, slotDetailCode); }
+function slotDetailViewBatch(){ closeModal("slotModal"); openBatch(slotDetailBatchId); }
 
 function placeBatchSelChanged(){
   placeBatchId=$("placeSel").value;
@@ -1634,9 +1689,16 @@ async function removeSelected(){
    another block to swap the two. Harvests are keyed by slot_code, so moving
    a placement carries its harvest rows along to the new code (from its
    placed_date onward) — otherwise a block's yield history would appear to
-   stay behind on the old shelf location instead of following the block. ===== */
+   stay behind on the old shelf location instead of following the block.
+   A swap is done in 3 DB steps (source → temp code → target's old slot →
+   target's new slot) so two placements never collide on the same slot_code
+   at once. rearrangeBusy blocks a second drag from starting mid-swap, and if
+   a step fails partway through, we roll the source back to where it started
+   instead of leaving it stranded on the invisible temp code. ===== */
 let dragPlacementCode=null;
+let rearrangeBusy=false;
 function rearrangeDragStart(e,code){
+  if(rearrangeBusy){ e.preventDefault(); return; }
   dragPlacementCode=code;
   e.dataTransfer.effectAllowed="move";
   try{ e.dataTransfer.setData("text/plain",code); }catch(_){}
@@ -1655,6 +1717,18 @@ function parseSlotCode(code){
   if(!m) return null;
   return {bayNo:parseInt(m[1],10), letter:m[2], slotNum:parseInt(m[3],10)};
 }
+/* Any active placement whose slot_code isn't a real B#-X#-# location — the
+   signature of a swap that failed partway through and got stuck on its
+   temp code. Nothing is deleted when this happens (movements/harvests are
+   untouched) but the block won't show on any shelf until it's cleared. */
+function orphanedPlacements(){
+  return placements.filter(p=>!p.removed_date && !/^B\d+-[A-Z]+-\d+$/.test(p.slot_code||""));
+}
+async function recoverOrphan(id){
+  if(!confirm("Clear this block off the shelf so it's not stuck? Nothing is deleted — its batch history and harvests are untouched, and you can re-place it fresh from Place mode.")) return;
+  await write(db.from("mn_placements").update({removed_date:todayISO()}).eq("id",id),"Couldn't clear this block");
+  renderRoom();
+}
 async function movePlacementHarvests(placement, oldCode, newCode){
   if(oldCode===newCode) return;
   const {error}=await db.from("mn_harvests").update({slot_code:newCode})
@@ -1666,6 +1740,7 @@ async function rearrangeDrop(e,targetCode){
   e.currentTarget.classList?.remove("drag-over");
   const fromCode=dragPlacementCode; dragPlacementCode=null;
   if(!fromCode || fromCode===targetCode) return;
+  if(rearrangeBusy){ return; } // a previous drag is still saving — ignore this one rather than race it
   const fromP=placementAt(fromCode);
   if(!fromP){ return; }
   const toP=placementAt(targetCode);
@@ -1674,25 +1749,34 @@ async function rearrangeDrop(e,targetCode){
   const targetBay=bays.find(bb=>bb.bay_no===tgt.bayNo);
   const fromBay=bays.find(bb=>bb.bay_no===src.bayNo);
   if(!targetBay||!fromBay) return;
+  rearrangeBusy=true;
   setSync("","Saving…");
   try{
     if(toP){
-      // swap two occupied slots — stage through a temp code first in case
-      // slot_code has a uniqueness constraint on active placements
+      // swap two occupied slots — stage through a temp code first so the two
+      // placements never briefly share the same slot_code
       const tempCode="TMP-"+Date.now()+"-"+fromP.id;
-      let e1=(await db.from("mn_placements").update({slot_code:tempCode}).eq("id",fromP.id)).error;
-      if(e1) throw e1;
-      let e2=(await db.from("mn_placements").update({
-        bay_id:fromBay.id, slot_code:fromCode, row_letter:src.letter, slot_num:src.slotNum
-      }).eq("id",toP.id)).error;
-      if(e2) throw e2;
-      let e3=(await db.from("mn_placements").update({
-        bay_id:targetBay.id, slot_code:targetCode, row_letter:tgt.letter, slot_num:tgt.slotNum
-      }).eq("id",fromP.id)).error;
-      if(e3) throw e3;
+      let err=(await db.from("mn_placements").update({slot_code:tempCode}).eq("id",fromP.id)).error;
+      if(err) throw err;
+      try{
+        err=(await db.from("mn_placements").update({
+          bay_id:fromBay.id, slot_code:fromCode, row_letter:src.letter, slot_num:src.slotNum
+        }).eq("id",toP.id)).error;
+        if(err) throw err;
+        err=(await db.from("mn_placements").update({
+          bay_id:targetBay.id, slot_code:targetCode, row_letter:tgt.letter, slot_num:tgt.slotNum
+        }).eq("id",fromP.id)).error;
+        if(err) throw err;
+      }catch(inner){
+        // best-effort rollback so the dragged block doesn't get stranded on
+        // the invisible temp code if a later step in the swap failed
+        await db.from("mn_placements").update({
+          bay_id:fromBay.id, slot_code:fromCode, row_letter:src.letter, slot_num:src.slotNum
+        }).eq("id",fromP.id);
+        throw inner;
+      }
       // Re-key each block's harvest rows so its yield history follows it to
       // its new slot code rather than staying pinned to the old location.
-      // fromP's harvests move fromCode → targetCode; toP's move the other way.
       await movePlacementHarvests(fromP, fromCode, targetCode);
       await movePlacementHarvests(toP, targetCode, fromCode);
     } else {
@@ -1707,7 +1791,10 @@ async function rearrangeDrop(e,targetCode){
     renderRoom();
   }catch(err){
     console.error(err); setSync("bad","Save failed");
-    alert("Couldn't move that block.\n\n"+err.message);
+    alert("Couldn't move that block — nothing should have changed on the shelf, but it's worth checking Room view to confirm.\n\n"+err.message);
+    await loadAll(); renderRoom(); // resync from the server in case anything partial landed
+  } finally {
+    rearrangeBusy=false;
   }
 }
 
