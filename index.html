@@ -487,8 +487,15 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
       <button class="chip" onclick="addChip('Perfect harvest')">Perfect harvest</button>
       <button class="chip" onclick="addChip('Great caps')">Great caps</button>
       <button class="chip" onclick="addChip('Trimmed')">Trimmed</button>
+      <button class="chip" onclick="addChip('Un-trimmed')">Un-trimmed</button>
       <button class="chip" onclick="addChip('Small fruits')">Small fruits</button>
       <button class="chip" onclick="addChip('Some aborts')">Some aborts</button>
+      <button class="chip" onclick="addChip('Partial harvest')">Partial Harvest</button>
+      <button class="chip" onclick="addChip('Aborted fruits')">Aborted Fruits</button>
+      <button class="chip" onclick="addChip('Uniform caps')">Uniform Caps</button>
+      <button class="chip" onclick="addChip('Full pin-set')">Full Pin-Set</button>
+      <button class="chip" onclick="addChip('Juvenile harvest')">Juvenile Harvest</button>
+      <button class="chip" onclick="addChip('Block fell')">Block Fell</button>
     </div>
     <div class="actions">
       <button class="btn btn-primary" onclick="saveHarvest()">Save harvest</button>
@@ -570,7 +577,7 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
 const SUPABASE_URL = "https://jckfsvjodrrauwvpecks.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impja2ZzdmpvZHJyYXV3dnBlY2tzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5ODk4NTgsImV4cCI6MjA5NjU2NTg1OH0.ECtXTPKstyRW3Q_au5oucobZ1Axw44SDZXz368wNi4g";
 const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-const APP_VERSION = "v3.9 \u00b7 Room top bar (mode switcher + Room setup) now stays floated whenever you're in Room, not just the banner \u00b7 tapping a block in View mode shows that block's own harvest history instead of the whole batch \u00b7 Rearrange hardened against overlapping drags, with stuck-block detection & one-tap recovery \u00b7 30 Jul 2026";
+const APP_VERSION = "v3.10 \u00b7 Added Un-trimmed, Partial Harvest, Aborted Fruits, Uniform Caps, Full Pin-Set, Juvenile Harvest and Block Fell auto-fill chips to the harvest note \u00b7 30 Jul 2026";
 
 /* ================= APPEARANCE (per-user) + BRANDING (shared) ================= */
 const ACCENTS=[
