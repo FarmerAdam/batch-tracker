@@ -169,6 +169,7 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
 .seg button.active{background:var(--accent);color:var(--accent-ink)}
 .seg button.active[data-mode="harvest"]{background:var(--st-fruiting);border-color:var(--st-fruiting)}
 .seg button.active[data-mode="remove"]{background:var(--danger);border-color:var(--danger)}
+.seg button.active[data-mode="rearrange"]{background:var(--st-ready);border-color:var(--st-ready)}
 
 /* room */
 #placeBanner{position:sticky;top:var(--header-h,92px);z-index:40}
@@ -202,6 +203,10 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
 .mode-place .slot.empty.pending-place{background:var(--accent);color:var(--accent-ink);border-style:solid;transform:scale(.96)}
 .mode-place .slot.empty.pending-place::after{content:"✓";font-size:13px;font-weight:700}
 .mode-harvest .slot.full{box-shadow:inset 0 0 0 2px rgba(255,255,255,.5)}
+.mode-rearrange .slot.full{cursor:grab}
+.mode-rearrange .slot.full:active{cursor:grabbing}
+.mode-rearrange .slot.dragging{opacity:.35}
+.mode-rearrange .slot.drag-over{outline:2.5px dashed var(--accent);outline-offset:-2px}
 .slot.sel{outline:3px solid var(--danger);outline-offset:1px}
 .slot.sel::after{content:"✓";position:absolute;top:2px;left:3px;font-size:10px;font-weight:700;color:#fff;text-shadow:0 0 2px rgba(0,0,0,.4)}
 .rl-btn{font-family:"IBM Plex Mono",monospace;font-weight:700;font-size:11px;color:var(--danger);width:14px;flex:none;border:1px solid #E5C5BE;border-radius:4px;background:#fff;cursor:pointer}
@@ -306,6 +311,7 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
       <button data-mode="place">Place</button>
       <button data-mode="harvest">Harvest</button>
       <button data-mode="remove">Remove</button>
+      <button data-mode="rearrange">Rearrange</button>
     </div>
     <div class="spacer"></div>
     <button class="btn btn-sm" onclick="openRoomSetup()">⚙ Room setup</button>
@@ -547,7 +553,7 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
 const SUPABASE_URL = "https://jckfsvjodrrauwvpecks.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impja2ZzdmpvZHJyYXV3dnBlY2tzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5ODk4NTgsImV4cCI6MjA5NjU2NTg1OH0.ECtXTPKstyRW3Q_au5oucobZ1Axw44SDZXz368wNi4g";
 const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-const APP_VERSION = "v3.7 \u00b7 sticky Place/Harvest/Remove banner while scrolling in Room view \u00b7 Room setup now opens to a read-only summary with a dedicated Edit room button, so it no longer creates a zone just to let you edit \u00b7 12 Jul 2026";
+const APP_VERSION = "v3.8 \u00b7 Flush number now suggests per physical block, not per batch \u00b7 new Room \u2192 Rearrange mode: drag a placed block onto an empty slot to move it, or onto another block to swap them \u00b7 30 Jul 2026";
 
 /* ================= APPEARANCE (per-user) + BRANDING (shared) ================= */
 const ACCENTS=[
@@ -1302,7 +1308,17 @@ function openHarvest(batchId, slotCode){
   modalBatchId=batchId; harvestSlot=slotCode||null;
   const b=batches.find(x=>x.id===batchId);
   $("hv_sub").textContent=`${b.name} #${b.batch_no}`+(harvestSlot?` · slot ${harvestSlot}`:"");
-  const flushes=harvests.filter(h=>h.batch_id===batchId).map(h=>h.flush||0);
+  // Flush number is per physical block, not per batch — a batch's blocks are
+  // usually on staggered flush cycles, so the count should only go up once
+  // THIS specific slot has already produced a prior flush. When harvesting
+  // from a known shelf slot, look only at that slot's own harvest history;
+  // when there's no slot (the generic "Log harvest" button on batch detail,
+  // not tied to a physical location), fall back to the batch-wide count since
+  // there's no way to tell which block it belongs to.
+  const relevant = harvestSlot
+    ? harvests.filter(h=>h.batch_id===batchId && h.slot_code===harvestSlot)
+    : harvests.filter(h=>h.batch_id===batchId && !h.slot_code);
+  const flushes=relevant.map(h=>h.flush||0);
   $("hv_flush").value=(flushes.length?Math.max(...flushes):0)+1;
   $("hv_weight").value=""; $("hv_note").value=""; $("hv_date").value=todayISO();
   openModal("harvestModal");
@@ -1388,6 +1404,8 @@ function renderRoom(){
     pb.innerHTML=`<div class="note-banner">Tap a filled slot to log a harvest from it.</div>`;
   } else if(roomMode==="remove"){
     pb.innerHTML=`<div class="note-banner">Tap blocks to select — or tap a <b>row letter</b> for the whole shelf, or <b>Select all</b> on a bay. Then hit Remove. Harvests stay in batch history.</div>`;
+  } else if(roomMode==="rearrange"){
+    pb.innerHTML=`<div class="note-banner">Drag a block onto an empty slot to move it there, or onto another block to swap the two. Harvest history travels with the block — nothing else changes.</div>`;
   } else pb.innerHTML="";
   // stats
   const s=roomStats();
@@ -1414,6 +1432,7 @@ function zoneHTML(z){
 
 function bayHTML(bay){
   const rm = roomMode==="remove";
+  const ra = roomMode==="rearrange";
   let rowsHTML="";
   for(let r=0;r<bay.rows;r++){
     const letter=rowLetter(r);
@@ -1425,7 +1444,8 @@ function bayHTML(bay){
       const p=placementAt(code);
       if(!p){
         const isPending=pendingPlaceSel.has(code);
-        return `<div class="slot empty${isPending?" pending-place":""}" id="sl_${code}" onclick="slotTap('${bay.id}','${letter}',${n})">${isPending?"✓":letter+n}</div>`;
+        const dropAttrs = ra ? ` ondragover="rearrangeDragOver(event)" ondragenter="rearrangeDragEnter(event)" ondragleave="rearrangeDragLeave(event)" ondrop="rearrangeDrop(event,'${code}')"` : "";
+        return `<div class="slot empty${isPending?" pending-place":""}" id="sl_${code}" onclick="slotTap('${bay.id}','${letter}',${n})"${dropAttrs}>${isPending?"✓":letter+n}</div>`;
       }
       const b=batches.find(x=>x.id===p.batch_id);
       const col=speciesColor(b?.species);
@@ -1434,7 +1454,8 @@ function bayHTML(bay){
       const y=placedYield(p);
       const hasHarv=y>0;
       const sel=removeSel.has(code)?" sel":"";
-      return `<div class="slot full${sel}" id="sl_${code}" style="background:${col};color:${ink}" title="${code} · ${esc(b?.name||"")}" onclick="slotTap('${bay.id}','${letter}',${n})">
+      const dragAttrs = ra ? ` draggable="true" ondragstart="rearrangeDragStart(event,'${code}')" ondragend="rearrangeDragEnd(event)" ondragover="rearrangeDragOver(event)" ondragenter="rearrangeDragEnter(event)" ondragleave="rearrangeDragLeave(event)" ondrop="rearrangeDrop(event,'${code}')"` : "";
+      return `<div class="slot full${sel}" id="sl_${code}" style="background:${col};color:${ink}" title="${code} · ${esc(b?.name||"")}" onclick="slotTap('${bay.id}','${letter}',${n})"${dragAttrs}>
         ${hasHarv?`<span class="harv-dot"></span>`:""}
         <span class="s-no">#${b?.batch_no??"?"}</span>
         <span class="s-sp">${esc(b?.species||"")}</span>
@@ -1467,6 +1488,9 @@ function slotTap(bayId,letter,n){
   const bay=bays.find(b=>b.id===bayId);
   const code=slotCode(bay,letter,n);
   const p=placementAt(code);
+  if(roomMode==="rearrange"){
+    return; // interaction here is drag-and-drop, not tap
+  }
   if(roomMode==="place"){
     if(!placeBatchId){ alert("Pick a batch to place first (top of screen)."); return; }
     if(p){
@@ -1604,6 +1628,87 @@ async function removeSelected(){
   if(!confirm(`Clear ${ids.length} block${ids.length===1?"":"s"} from the shelves? Their harvests stay in batch history.`)) return;
   const ok=await write(db.from("mn_placements").update({removed_date:todayISO()}).in("id",ids),"Couldn't clear blocks");
   if(ok){ removeSel.clear(); renderRoom(); }
+}
+
+/* ===== Rearrange: drag a placed block onto an empty slot to move it, or onto
+   another block to swap the two. Harvests are keyed by slot_code, so moving
+   a placement carries its harvest rows along to the new code (from its
+   placed_date onward) — otherwise a block's yield history would appear to
+   stay behind on the old shelf location instead of following the block. ===== */
+let dragPlacementCode=null;
+function rearrangeDragStart(e,code){
+  dragPlacementCode=code;
+  e.dataTransfer.effectAllowed="move";
+  try{ e.dataTransfer.setData("text/plain",code); }catch(_){}
+  e.currentTarget.classList.add("dragging");
+}
+function rearrangeDragEnd(e){
+  e.currentTarget.classList.remove("dragging");
+  document.querySelectorAll(".slot.drag-over").forEach(el=>el.classList.remove("drag-over"));
+  dragPlacementCode=null;
+}
+function rearrangeDragOver(e){ e.preventDefault(); e.dataTransfer.dropEffect="move"; }
+function rearrangeDragEnter(e){ e.currentTarget.classList.add("drag-over"); }
+function rearrangeDragLeave(e){ e.currentTarget.classList.remove("drag-over"); }
+function parseSlotCode(code){
+  const m=code.match(/^B(\d+)-([A-Z]+)-(\d+)$/);
+  if(!m) return null;
+  return {bayNo:parseInt(m[1],10), letter:m[2], slotNum:parseInt(m[3],10)};
+}
+async function movePlacementHarvests(placement, oldCode, newCode){
+  if(oldCode===newCode) return;
+  const {error}=await db.from("mn_harvests").update({slot_code:newCode})
+    .eq("batch_id",placement.batch_id).eq("slot_code",oldCode).gte("harvest_date",placement.placed_date);
+  if(error) throw error;
+}
+async function rearrangeDrop(e,targetCode){
+  e.preventDefault();
+  e.currentTarget.classList?.remove("drag-over");
+  const fromCode=dragPlacementCode; dragPlacementCode=null;
+  if(!fromCode || fromCode===targetCode) return;
+  const fromP=placementAt(fromCode);
+  if(!fromP){ return; }
+  const toP=placementAt(targetCode);
+  const tgt=parseSlotCode(targetCode), src=parseSlotCode(fromCode);
+  if(!tgt||!src) return;
+  const targetBay=bays.find(bb=>bb.bay_no===tgt.bayNo);
+  const fromBay=bays.find(bb=>bb.bay_no===src.bayNo);
+  if(!targetBay||!fromBay) return;
+  setSync("","Saving…");
+  try{
+    if(toP){
+      // swap two occupied slots — stage through a temp code first in case
+      // slot_code has a uniqueness constraint on active placements
+      const tempCode="TMP-"+Date.now()+"-"+fromP.id;
+      let e1=(await db.from("mn_placements").update({slot_code:tempCode}).eq("id",fromP.id)).error;
+      if(e1) throw e1;
+      let e2=(await db.from("mn_placements").update({
+        bay_id:fromBay.id, slot_code:fromCode, row_letter:src.letter, slot_num:src.slotNum
+      }).eq("id",toP.id)).error;
+      if(e2) throw e2;
+      let e3=(await db.from("mn_placements").update({
+        bay_id:targetBay.id, slot_code:targetCode, row_letter:tgt.letter, slot_num:tgt.slotNum
+      }).eq("id",fromP.id)).error;
+      if(e3) throw e3;
+      // Re-key each block's harvest rows so its yield history follows it to
+      // its new slot code rather than staying pinned to the old location.
+      // fromP's harvests move fromCode → targetCode; toP's move the other way.
+      await movePlacementHarvests(fromP, fromCode, targetCode);
+      await movePlacementHarvests(toP, targetCode, fromCode);
+    } else {
+      const {error}=await db.from("mn_placements").update({
+        bay_id:targetBay.id, slot_code:targetCode, row_letter:tgt.letter, slot_num:tgt.slotNum
+      }).eq("id",fromP.id);
+      if(error) throw error;
+      await movePlacementHarvests(fromP, fromCode, targetCode);
+    }
+    await loadAll();
+    setSync("ok","Synced");
+    renderRoom();
+  }catch(err){
+    console.error(err); setSync("bad","Save failed");
+    alert("Couldn't move that block.\n\n"+err.message);
+  }
 }
 
 /* ===== Room setup ===== */
