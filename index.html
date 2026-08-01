@@ -600,7 +600,7 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
 const SUPABASE_URL = "https://jckfsvjodrrauwvpecks.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impja2ZzdmpvZHJyYXV3dnBlY2tzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5ODk4NTgsImV4cCI6MjA5NjU2NTg1OH0.ECtXTPKstyRW3Q_au5oucobZ1Axw44SDZXz368wNi4g";
 const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-const APP_VERSION = "v3.11 \u00b7 Room > Remove now asks for an optional reason (spent, contamination, infestation, etc.) per block, shown against the batch under \"Removed from shelves\" \u00b7 fixed the room mode switcher getting squished/skewed on phone screens \u00b7 30 Jul 2026";
+const APP_VERSION = "v3.12 \u00b7 Room now detects when two blocks are claiming the same shelf slot (leftover from earlier Rearrange testing) and lets you pick which one to keep, right from the Room screen \u00b7 30 Jul 2026";
 
 /* ================= APPEARANCE (per-user) + BRANDING (shared) ================= */
 const ACCENTS=[
@@ -1466,6 +1466,25 @@ function renderRoom(){
       ${orphans.map(o=>{const b=batches.find(x=>x.id===o.batch_id); return `<div style="margin-top:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap"><b>${esc(b?.name||"?")}</b> <span class="mono">#${b?.batch_no??"?"}</span><button class="btn btn-sm" onclick="recoverOrphan('${o.id}')">Clear from shelf</button></div>`;}).join("")}
     </div>`;
   }
+  // duplicate slot claims — two active placements both sitting on the SAME
+  // real slot code. Rendering only ever shows one of them (placementAt just
+  // returns the first match), so the other is invisibly "there" until it's
+  // cleared — this is almost certainly the cause of blocks looking duplicated,
+  // most likely left over from swaps done before the Rearrange race-condition
+  // fix. Nothing is deleted by clearing one; it just takes the extra copy off
+  // this shelf slot.
+  const dupes=duplicateSlotPlacements();
+  if(dupes.length){
+    pb.innerHTML += `<div class="note-banner" style="border-color:#E5C5BE;background:#FBEEEA;color:var(--danger)">
+      ⚠ ${dupes.length} shelf slot${dupes.length===1?"":"s"} ${dupes.length===1?"has":"have"} more than one block claiming it — a leftover from earlier Rearrange testing. Pick which one actually belongs there; the other(s) get cleared (nothing deleted, harvests stay intact).
+      ${dupes.map(d=>{
+        const codeEsc=esc(d.code).replace(/'/g,"\\'");
+        return `<div style="margin-top:8px"><b class="mono">${esc(d.code)}</b>:
+          ${d.placements.map(p=>{const b=batches.find(x=>x.id===p.batch_id); return `<div style="margin:3px 0 3px 12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span><b>${esc(b?.name||"?")}</b> <span class="mono">#${b?.batch_no??"?"}</span> · placed ${fmtDate(p.placed_date)}</span><button class="btn btn-sm" onclick="keepThisDuplicate('${p.id}','${codeEsc}')">Keep this one</button></div>`;}).join("")}
+        </div>`;
+      }).join("")}
+    </div>`;
+  }
   // stats
   const s=roomStats();
   $("roomStats").innerHTML=`
@@ -1767,6 +1786,27 @@ function orphanedPlacements(){
 async function recoverOrphan(id){
   if(!confirm("Clear this block off the shelf so it's not stuck? Nothing is deleted — its batch history and harvests are untouched, and you can re-place it fresh from Place mode.")) return;
   await write(db.from("mn_placements").update({removed_date:todayISO()}).eq("id",id),"Couldn't clear this block");
+  renderRoom();
+}
+/* Two (or more) active placements both sitting on the exact same real slot
+   code — placementAt() only ever surfaces the first match, so the rest sit
+   invisibly "on" that slot until cleared. This is the "duplicate tiles"
+   failure mode, most likely left over from swaps done before the Rearrange
+   busy-lock/rollback fix. Grouped by slot_code for display. */
+function duplicateSlotPlacements(){
+  const byCode={};
+  for(const p of placements){
+    if(p.removed_date || !/^B\d+-[A-Z]+-\d+$/.test(p.slot_code||"")) continue;
+    (byCode[p.slot_code]=byCode[p.slot_code]||[]).push(p);
+  }
+  return Object.entries(byCode).filter(([,ps])=>ps.length>1)
+    .map(([code,ps])=>({code, placements:ps.sort((a,b)=>a.placed_date<b.placed_date?1:-1)}));
+}
+async function keepThisDuplicate(keepId, code){
+  const others=placements.filter(p=>p.slot_code===code && !p.removed_date && p.id!==keepId).map(p=>p.id);
+  if(!others.length) return;
+  if(!confirm(`Keep this block on ${code} and clear the other${others.length===1?"":"s"} off it? Nothing is deleted — batch, movement and harvest data for the cleared one(s) stays intact, it just comes off this shelf slot.`)) return;
+  await write(db.from("mn_placements").update({removed_date:todayISO(), removed_note:"Duplicate placement cleanup"}).in("id",others),"Couldn't clear the duplicate(s)");
   renderRoom();
 }
 async function movePlacementHarvests(placement, oldCode, newCode){
