@@ -532,6 +532,27 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
   </div>
 </div>
 
+<!-- REMOVE (WITH REASON) MODAL -->
+<div class="modal-bg" id="removeModal">
+  <div class="modal">
+    <h3>Remove blocks</h3>
+    <div class="sub" id="rm_sub"></div>
+    <label>Reason (optional)</label>
+    <input id="rm_note" placeholder="e.g. Spent, contamination, pests…">
+    <div class="chips">
+      <button class="chip" onclick="addRemoveChip('Spent')">Spent</button>
+      <button class="chip" onclick="addRemoveChip('Contamination')">Contamination</button>
+      <button class="chip" onclick="addRemoveChip('Infestation / pests')">Infestation / pests</button>
+      <button class="chip" onclick="addRemoveChip('Mouldy / off')">Mouldy / off</button>
+      <button class="chip" onclick="addRemoveChip('Low yield')">Low yield</button>
+    </div>
+    <div class="actions">
+      <button class="btn btn-primary" onclick="confirmRemove()">Remove <span id="rm_count"></span></button>
+      <button class="btn" onclick="closeModal('removeModal')">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <!-- PREFERENCES MODAL -->
 <div class="modal-bg" id="prefsModal">
   <div class="modal">
@@ -579,7 +600,7 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
 const SUPABASE_URL = "https://jckfsvjodrrauwvpecks.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impja2ZzdmpvZHJyYXV3dnBlY2tzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5ODk4NTgsImV4cCI6MjA5NjU2NTg1OH0.ECtXTPKstyRW3Q_au5oucobZ1Axw44SDZXz368wNi4g";
 const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-const APP_VERSION = "v3.9 \u00b7 Room top bar (mode switcher + Room setup) now stays floated whenever you're in Room, not just the banner \u00b7 tapping a block in View mode shows that block's own harvest history instead of the whole batch \u00b7 Rearrange hardened against overlapping drags, with stuck-block detection & one-tap recovery \u00b7 30 Jul 2026";
+const APP_VERSION = "v3.11 \u00b7 Room > Remove now asks for an optional reason (spent, contamination, infestation, etc.) per block, shown against the batch under \"Removed from shelves\" \u00b7 fixed the room mode switcher getting squished/skewed on phone screens \u00b7 30 Jul 2026";
 
 /* ================= APPEARANCE (per-user) + BRANDING (shared) ================= */
 const ACCENTS=[
@@ -1106,6 +1127,7 @@ function renderBatch(){
       ${miniGrid(b,true)}
       <div class="legend">${STATE_ORDER.map(s=>{const v=displayState(s,b);return `<span><span class="sq ${v.cls}"></span>${v.label} (${c[s]})</span>`;}).join("")}</div>
       ${(()=>{ const on=placements.filter(p=>p.batch_id===b.id&&!p.removed_date); return on.length?`<div style="margin-top:12px;font-size:14px"><b>On shelves (${on.length}):</b> <span class="mono" style="color:var(--muted)">${on.map(p=>p.slot_code).sort().join(", ")}</span></div>`:""; })()}
+      ${(()=>{ const off=placements.filter(p=>p.batch_id===b.id&&p.removed_date).sort((a,x)=>a.removed_date<x.removed_date?1:-1); return off.length?`<div style="margin-top:8px;font-size:14px"><b>Removed from shelves (${off.length}):</b><ul style="list-style:none;margin-top:4px">${off.map(p=>`<li style="color:var(--muted);padding:2px 0">${fmtDate(p.removed_date)} · <span class="mono">${esc(p.slot_code)}</span>${p.removed_note?` — ${esc(p.removed_note)}`:""}</li>`).join("")}</ul></div>`:""; })()}
       <div style="margin-top:14px;font-size:14px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
         <b>Ready to fruit:</b>
         ${b.ready_date?`<span>${fmtDate(b.ready_date)} <span style="color:var(--muted)">(${daysBetween(b.inoc_date,b.ready_date)} days from inoc)</span></span>`:`<span style="color:var(--muted)">Not marked yet</span>`}
@@ -1683,15 +1705,24 @@ function updateRemoveBar(){
   bar.classList.add("show");
   bar.innerHTML=`<span><b>${removeSel.size}</b> block${removeSel.size===1?"":"s"} selected</span>
     <button class="btn btn-sm" onclick="clearSel()">Clear</button>
-    <button class="btn btn-sm btn-danger" onclick="removeSelected()">Remove ${removeSel.size}</button>`;
+    <button class="btn btn-sm btn-danger" onclick="openRemoveModal()">Remove ${removeSel.size}</button>`;
 }
-async function removeSelected(){
+function openRemoveModal(){
+  if(!removeSel.size) return;
+  $("rm_sub").textContent=`${removeSel.size} block${removeSel.size===1?"":"s"} selected. Harvests stay in batch history either way — the reason below is just so you can see later why a block came off the shelf.`;
+  $("rm_note").value="";
+  $("rm_count").textContent=removeSel.size;
+  openModal("removeModal");
+  setTimeout(()=>$("rm_note").focus(),100);
+}
+function addRemoveChip(t){ $("rm_note").value=t; }
+async function confirmRemove(){
   const codes=[...removeSel];
   const ids=codes.map(c=>placementAt(c)?.id).filter(Boolean);
-  if(!ids.length) return;
-  if(!confirm(`Clear ${ids.length} block${ids.length===1?"":"s"} from the shelves? Their harvests stay in batch history.`)) return;
-  const ok=await write(db.from("mn_placements").update({removed_date:todayISO()}).in("id",ids),"Couldn't clear blocks");
-  if(ok){ removeSel.clear(); renderRoom(); }
+  if(!ids.length){ closeModal("removeModal"); return; }
+  const note=$("rm_note").value.trim()||null;
+  const ok=await write(db.from("mn_placements").update({removed_date:todayISO(), removed_note:note}).in("id",ids),"Couldn't clear blocks");
+  if(ok){ closeModal("removeModal"); removeSel.clear(); renderRoom(); }
 }
 
 /* ===== Rearrange: drag a placed block onto an empty slot to move it, or onto
