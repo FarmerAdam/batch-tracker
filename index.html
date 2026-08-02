@@ -164,12 +164,21 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
 
 /* segmented control */
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--card)}
-.seg button{padding:9px 15px;font-weight:600;font-size:14px;color:var(--muted);border-right:1px solid var(--line)}
+.seg button{padding:9px 15px;font-weight:600;font-size:14px;color:var(--muted);border-right:1px solid var(--line);white-space:nowrap}
 .seg button:last-child{border-right:none}
 .seg button.active{background:var(--accent);color:var(--accent-ink)}
 .seg button.active[data-mode="harvest"]{background:var(--st-fruiting);border-color:var(--st-fruiting)}
 .seg button.active[data-mode="remove"]{background:var(--danger);border-color:var(--danger)}
 .seg button.active[data-mode="rearrange"]{background:var(--st-ready);border-color:var(--st-ready)}
+/* room mode switcher has 5 buttons now — never let flex-shrink squish/skew
+   them unevenly. Force it to claim the full toolbar row (wrapping the
+   spacer/Room-setup button below it) and, only if it still doesn't fit on a
+   very narrow phone, scroll horizontally instead of compressing. */
+#roomModes{flex:1 1 100%;max-width:100%;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch}
+#roomModes::-webkit-scrollbar{display:none}
+@media(max-width:760px){
+  #roomModes button{padding:9px 12px;font-size:13px}
+}
 
 /* room */
 #roomTopBar{position:sticky;top:var(--header-h,92px);z-index:40;background:var(--bg);padding-top:2px;padding-bottom:4px}
@@ -484,14 +493,11 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
     <label>Date</label><input type="date" id="hv_date">
     <label>Note (optional)</label><input id="hv_note" placeholder="e.g. great caps">
     <div class="chips">
-      <button class="chip" onclick="addChip('Partial harvest')">Partial Harvest</button>
+      <button class="chip" onclick="addChip('Perfect harvest')">Perfect harvest</button>
+      <button class="chip" onclick="addChip('Great caps')">Great caps</button>
       <button class="chip" onclick="addChip('Trimmed')">Trimmed</button>
-      <button class="chip" onclick="addChip('Un-trimmed')">Un-trimmed</button>
-      <button class="chip" onclick="addChip('Aborted fruits')">Aborted Fruits</button>
-      <button class="chip" onclick="addChip('Uniform caps')">Uniform Caps</button>
-      <button class="chip" onclick="addChip('Full pin-set')">Full Pin-Set</button>
-      <button class="chip" onclick="addChip('Juvenile harvest')">Juvenile Harvest</button>
-      <button class="chip" onclick="addChip('Block fell')">Block Fell</button>
+      <button class="chip" onclick="addChip('Small fruits')">Small fruits</button>
+      <button class="chip" onclick="addChip('Some aborts')">Some aborts</button>
     </div>
     <div class="actions">
       <button class="btn btn-primary" onclick="saveHarvest()">Save harvest</button>
@@ -523,6 +529,27 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
       <button class="btn" onclick="slotDetailViewBatch()">View full batch</button>
     </div>
     <div style="text-align:center;margin-top:10px"><button class="btn btn-sm" onclick="closeModal('slotModal')">Close</button></div>
+  </div>
+</div>
+
+<!-- REMOVE (WITH REASON) MODAL -->
+<div class="modal-bg" id="removeModal">
+  <div class="modal">
+    <h3>Remove blocks</h3>
+    <div class="sub" id="rm_sub"></div>
+    <label>Reason (optional)</label>
+    <input id="rm_note" placeholder="e.g. Spent, contamination, pests…">
+    <div class="chips">
+      <button class="chip" onclick="addRemoveChip('Spent')">Spent</button>
+      <button class="chip" onclick="addRemoveChip('Contamination')">Contamination</button>
+      <button class="chip" onclick="addRemoveChip('Infestation / pests')">Infestation / pests</button>
+      <button class="chip" onclick="addRemoveChip('Mouldy / off')">Mouldy / off</button>
+      <button class="chip" onclick="addRemoveChip('Low yield')">Low yield</button>
+    </div>
+    <div class="actions">
+      <button class="btn btn-primary" onclick="confirmRemove()">Remove <span id="rm_count"></span></button>
+      <button class="btn" onclick="closeModal('removeModal')">Cancel</button>
+    </div>
   </div>
 </div>
 
@@ -573,7 +600,7 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
 const SUPABASE_URL = "https://jckfsvjodrrauwvpecks.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impja2ZzdmpvZHJyYXV3dnBlY2tzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5ODk4NTgsImV4cCI6MjA5NjU2NTg1OH0.ECtXTPKstyRW3Q_au5oucobZ1Axw44SDZXz368wNi4g";
 const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-const APP_VERSION = "v3.10 \u00b7 Replaced harvest note auto-fill chips with Partial Harvest, Trimmed, Un-trimmed, Aborted Fruits, Uniform Caps, Full Pin-Set, Juvenile Harvest, Block Fell \u00b7 30 Jul 2026";
+const APP_VERSION = "v3.12 \u00b7 Room now detects when two blocks are claiming the same shelf slot (leftover from earlier Rearrange testing) and lets you pick which one to keep, right from the Room screen \u00b7 30 Jul 2026";
 
 /* ================= APPEARANCE (per-user) + BRANDING (shared) ================= */
 const ACCENTS=[
@@ -1100,6 +1127,7 @@ function renderBatch(){
       ${miniGrid(b,true)}
       <div class="legend">${STATE_ORDER.map(s=>{const v=displayState(s,b);return `<span><span class="sq ${v.cls}"></span>${v.label} (${c[s]})</span>`;}).join("")}</div>
       ${(()=>{ const on=placements.filter(p=>p.batch_id===b.id&&!p.removed_date); return on.length?`<div style="margin-top:12px;font-size:14px"><b>On shelves (${on.length}):</b> <span class="mono" style="color:var(--muted)">${on.map(p=>p.slot_code).sort().join(", ")}</span></div>`:""; })()}
+      ${(()=>{ const off=placements.filter(p=>p.batch_id===b.id&&p.removed_date).sort((a,x)=>a.removed_date<x.removed_date?1:-1); return off.length?`<div style="margin-top:8px;font-size:14px"><b>Removed from shelves (${off.length}):</b><ul style="list-style:none;margin-top:4px">${off.map(p=>`<li style="color:var(--muted);padding:2px 0">${fmtDate(p.removed_date)} · <span class="mono">${esc(p.slot_code)}</span>${p.removed_note?` — ${esc(p.removed_note)}`:""}</li>`).join("")}</ul></div>`:""; })()}
       <div style="margin-top:14px;font-size:14px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
         <b>Ready to fruit:</b>
         ${b.ready_date?`<span>${fmtDate(b.ready_date)} <span style="color:var(--muted)">(${daysBetween(b.inoc_date,b.ready_date)} days from inoc)</span></span>`:`<span style="color:var(--muted)">Not marked yet</span>`}
@@ -1438,6 +1466,25 @@ function renderRoom(){
       ${orphans.map(o=>{const b=batches.find(x=>x.id===o.batch_id); return `<div style="margin-top:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap"><b>${esc(b?.name||"?")}</b> <span class="mono">#${b?.batch_no??"?"}</span><button class="btn btn-sm" onclick="recoverOrphan('${o.id}')">Clear from shelf</button></div>`;}).join("")}
     </div>`;
   }
+  // duplicate slot claims — two active placements both sitting on the SAME
+  // real slot code. Rendering only ever shows one of them (placementAt just
+  // returns the first match), so the other is invisibly "there" until it's
+  // cleared — this is almost certainly the cause of blocks looking duplicated,
+  // most likely left over from swaps done before the Rearrange race-condition
+  // fix. Nothing is deleted by clearing one; it just takes the extra copy off
+  // this shelf slot.
+  const dupes=duplicateSlotPlacements();
+  if(dupes.length){
+    pb.innerHTML += `<div class="note-banner" style="border-color:#E5C5BE;background:#FBEEEA;color:var(--danger)">
+      ⚠ ${dupes.length} shelf slot${dupes.length===1?"":"s"} ${dupes.length===1?"has":"have"} more than one block claiming it — a leftover from earlier Rearrange testing. Pick which one actually belongs there; the other(s) get cleared (nothing deleted, harvests stay intact).
+      ${dupes.map(d=>{
+        const codeEsc=esc(d.code).replace(/'/g,"\\'");
+        return `<div style="margin-top:8px"><b class="mono">${esc(d.code)}</b>:
+          ${d.placements.map(p=>{const b=batches.find(x=>x.id===p.batch_id); return `<div style="margin:3px 0 3px 12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span><b>${esc(b?.name||"?")}</b> <span class="mono">#${b?.batch_no??"?"}</span> · placed ${fmtDate(p.placed_date)}</span><button class="btn btn-sm" onclick="keepThisDuplicate('${p.id}','${codeEsc}')">Keep this one</button></div>`;}).join("")}
+        </div>`;
+      }).join("")}
+    </div>`;
+  }
   // stats
   const s=roomStats();
   $("roomStats").innerHTML=`
@@ -1677,47 +1724,68 @@ function updateRemoveBar(){
   bar.classList.add("show");
   bar.innerHTML=`<span><b>${removeSel.size}</b> block${removeSel.size===1?"":"s"} selected</span>
     <button class="btn btn-sm" onclick="clearSel()">Clear</button>
-    <button class="btn btn-sm btn-danger" onclick="removeSelected()">Remove ${removeSel.size}</button>`;
+    <button class="btn btn-sm btn-danger" onclick="openRemoveModal()">Remove ${removeSel.size}</button>`;
 }
-async function removeSelected(){
+function openRemoveModal(){
+  if(!removeSel.size) return;
+  $("rm_sub").textContent=`${removeSel.size} block${removeSel.size===1?"":"s"} selected. Harvests stay in batch history either way — the reason below is just so you can see later why a block came off the shelf.`;
+  $("rm_note").value="";
+  $("rm_count").textContent=removeSel.size;
+  openModal("removeModal");
+  setTimeout(()=>$("rm_note").focus(),100);
+}
+function addRemoveChip(t){ $("rm_note").value=t; }
+// Reason text that means "something went wrong", not "done fruiting" -
+// matches the problem chips in the remove modal (Contamination,
+// Infestation / pests, Mouldy / off). This is exactly the "unless stated
+// otherwise" case: a problem reason IS the user stating otherwise, so
+// auto-complete is skipped and the batch is left for an explicit Move to
+// Contaminated/Culled instead. "Spent"/"Low yield"/blank all proceed.
+const PROBLEM_REASON_KEYWORDS=['contamin','infest','pest','mould','mold'];
+
+async function confirmRemove(){
   const codes=[...removeSel];
   const toRemove=codes.map(c=>placementAt(c)).filter(Boolean);
-  if(!toRemove.length) return;
-  if(!confirm(`Clear ${toRemove.length} block${toRemove.length===1?"":"s"} from the shelves? Their harvests stay in batch history. Any still marked "Fruiting" will auto-move to Complete unless you've already moved them elsewhere.`)) return;
-
+  if(!toRemove.length){ closeModal("removeModal"); return; }
   const ids=toRemove.map(p=>p.id);
-  const ok=await write(db.from("mn_placements").update({removed_date:todayISO()}).in("id",ids),"Couldn't clear blocks");
+  const note=$("rm_note").value.trim()||null;
+  const ok=await write(db.from("mn_placements").update({removed_date:todayISO(), removed_note:note}).in("id",ids),"Couldn't clear blocks");
   if(!ok) return;
 
-  // Auto-complete: symmetric to the auto incubating→fruiting movement
-  // created on Place. For each batch among the removed blocks, move
-  // whatever's still logically "Fruiting" into Complete - batchCounts()
-  // is read fresh (loadAll() already ran inside write() above), so if the
-  // user already explicitly moved some/all of this batch to Contaminated/
-  // Culled/Complete via the Move modal, that reduced count is respected
-  // and this only picks up whatever's left, never double-moving.
-  const byBatch={};
-  for(const p of toRemove){ byBatch[p.batch_id]=(byBatch[p.batch_id]||0)+1; }
-  const movRows=[];
-  for(const [batchId,removedCount] of Object.entries(byBatch)){
-    const b=batches.find(x=>x.id===batchId);
-    if(!b) continue;
-    const stillFruiting=batchCounts(b).fruiting;
-    const toComplete=Math.min(removedCount,stillFruiting);
-    if(toComplete<=0) continue;
-    const sizes=sizesInState(b,"fruiting");
-    if(sizes.length<=1){
-      const kg=sizes.length===1?sizes[0].kg:null;
-      movRows.push({batch_id:batchId, move_date:todayISO(), from_state:"fruiting", to_state:"complete", count:toComplete, kg, note:"Auto: removed from fruiting chamber"});
-    } else {
-      let rem=toComplete;
-      for(const s of sizes){ if(rem<=0) break; const take=Math.min(rem,s.count); movRows.push({batch_id:batchId, move_date:todayISO(), from_state:"fruiting", to_state:"complete", count:take, kg:s.kg, note:"Auto: removed from fruiting chamber"}); rem-=take; }
+  const isProblemReason = note && PROBLEM_REASON_KEYWORDS.some(k=>note.toLowerCase().includes(k));
+  if(!isProblemReason){
+    // Auto-complete: symmetric to the auto incubating→fruiting movement
+    // created on Place. For each batch among the removed blocks, move
+    // whatever's still logically "Fruiting" into Complete - batchCounts()
+    // is read fresh (loadAll() already ran inside write() above), so if
+    // the user already explicitly moved some/all of this batch to
+    // Contaminated/Culled/Complete via the Move modal, that reduced count
+    // is respected and this only picks up whatever's left, never
+    // double-moving.
+    const byBatch={};
+    for(const p of toRemove){ byBatch[p.batch_id]=(byBatch[p.batch_id]||0)+1; }
+    const movRows=[];
+    for(const [batchId,removedCount] of Object.entries(byBatch)){
+      const b=batches.find(x=>x.id===batchId);
+      if(!b) continue;
+      const stillFruiting=batchCounts(b).fruiting;
+      const toComplete=Math.min(removedCount,stillFruiting);
+      if(toComplete<=0) continue;
+      const movNote=note?`Auto-completed on removal (${note})`:"Auto-completed on removal";
+      const sizes=sizesInState(b,"fruiting");
+      if(sizes.length<=1){
+        const kg=sizes.length===1?sizes[0].kg:null;
+        movRows.push({batch_id:batchId, move_date:todayISO(), from_state:"fruiting", to_state:"complete", count:toComplete, kg, note:movNote});
+      } else {
+        let rem=toComplete;
+        for(const s of sizes){ if(rem<=0) break; const take=Math.min(rem,s.count); movRows.push({batch_id:batchId, move_date:todayISO(), from_state:"fruiting", to_state:"complete", count:take, kg:s.kg, note:movNote}); rem-=take; }
+      }
+    }
+    if(movRows.length>0){
+      await write(db.from("mn_movements").insert(movRows),"Blocks cleared, but couldn't record the auto-complete movement");
     }
   }
-  if(movRows.length>0){
-    await write(db.from("mn_movements").insert(movRows),"Blocks cleared, but couldn't record the auto-complete movement");
-  }
-  removeSel.clear(); renderRoom();
+  closeModal("removeModal"); removeSel.clear(); renderRoom();
 }
 
 /* ===== Rearrange: drag a placed block onto an empty slot to move it, or onto
@@ -1762,6 +1830,27 @@ function orphanedPlacements(){
 async function recoverOrphan(id){
   if(!confirm("Clear this block off the shelf so it's not stuck? Nothing is deleted — its batch history and harvests are untouched, and you can re-place it fresh from Place mode.")) return;
   await write(db.from("mn_placements").update({removed_date:todayISO()}).eq("id",id),"Couldn't clear this block");
+  renderRoom();
+}
+/* Two (or more) active placements both sitting on the exact same real slot
+   code — placementAt() only ever surfaces the first match, so the rest sit
+   invisibly "on" that slot until cleared. This is the "duplicate tiles"
+   failure mode, most likely left over from swaps done before the Rearrange
+   busy-lock/rollback fix. Grouped by slot_code for display. */
+function duplicateSlotPlacements(){
+  const byCode={};
+  for(const p of placements){
+    if(p.removed_date || !/^B\d+-[A-Z]+-\d+$/.test(p.slot_code||"")) continue;
+    (byCode[p.slot_code]=byCode[p.slot_code]||[]).push(p);
+  }
+  return Object.entries(byCode).filter(([,ps])=>ps.length>1)
+    .map(([code,ps])=>({code, placements:ps.sort((a,b)=>a.placed_date<b.placed_date?1:-1)}));
+}
+async function keepThisDuplicate(keepId, code){
+  const others=placements.filter(p=>p.slot_code===code && !p.removed_date && p.id!==keepId).map(p=>p.id);
+  if(!others.length) return;
+  if(!confirm(`Keep this block on ${code} and clear the other${others.length===1?"":"s"} off it? Nothing is deleted — batch, movement and harvest data for the cleared one(s) stays intact, it just comes off this shelf slot.`)) return;
+  await write(db.from("mn_placements").update({removed_date:todayISO(), removed_note:"Duplicate placement cleanup"}).in("id",others),"Couldn't clear the duplicate(s)");
   renderRoom();
 }
 async function movePlacementHarvests(placement, oldCode, newCode){
