@@ -493,11 +493,14 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
     <label>Date</label><input type="date" id="hv_date">
     <label>Note (optional)</label><input id="hv_note" placeholder="e.g. great caps">
     <div class="chips">
-      <button class="chip" onclick="addChip('Perfect harvest')">Perfect harvest</button>
-      <button class="chip" onclick="addChip('Great caps')">Great caps</button>
+      <button class="chip" onclick="addChip('Partial harvest')">Partial Harvest</button>
       <button class="chip" onclick="addChip('Trimmed')">Trimmed</button>
-      <button class="chip" onclick="addChip('Small fruits')">Small fruits</button>
-      <button class="chip" onclick="addChip('Some aborts')">Some aborts</button>
+      <button class="chip" onclick="addChip('Un-trimmed')">Un-trimmed</button>
+      <button class="chip" onclick="addChip('Aborted fruits')">Aborted Fruits</button>
+      <button class="chip" onclick="addChip('Uniform caps')">Uniform Caps</button>
+      <button class="chip" onclick="addChip('Full pin-set')">Full Pin-Set</button>
+      <button class="chip" onclick="addChip('Juvenile harvest')">Juvenile Harvest</button>
+      <button class="chip" onclick="addChip('Block fell')">Block Fell</button>
     </div>
     <div class="actions">
       <button class="btn btn-primary" onclick="saveHarvest()">Save harvest</button>
@@ -600,7 +603,7 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
 const SUPABASE_URL = "https://jckfsvjodrrauwvpecks.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impja2ZzdmpvZHJyYXV3dnBlY2tzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5ODk4NTgsImV4cCI6MjA5NjU2NTg1OH0.ECtXTPKstyRW3Q_au5oucobZ1Axw44SDZXz368wNi4g";
 const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-const APP_VERSION = "v3.12 \u00b7 Room now detects when two blocks are claiming the same shelf slot (leftover from earlier Rearrange testing) and lets you pick which one to keep, right from the Room screen \u00b7 30 Jul 2026";
+const APP_VERSION = "v3.13 \u00b7 Restored the Partial Harvest/Trimmed/Un-trimmed/Aborted Fruits/Uniform Caps/Full Pin-Set/Juvenile Harvest/Block Fell harvest note chips, which had been accidentally reverted to an older 5-chip set \u00b7 3 Aug 2026";
 
 /* ================= APPEARANCE (per-user) + BRANDING (shared) ================= */
 const ACCENTS=[
