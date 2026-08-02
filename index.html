@@ -1735,12 +1735,11 @@ function openRemoveModal(){
   setTimeout(()=>$("rm_note").focus(),100);
 }
 function addRemoveChip(t){ $("rm_note").value=t; }
-// Reason text that means "something went wrong", not "done fruiting" -
-// matches the problem chips in the remove modal (Contamination,
-// Infestation / pests, Mouldy / off). This is exactly the "unless stated
-// otherwise" case: a problem reason IS the user stating otherwise, so
-// auto-complete is skipped and the batch is left for an explicit Move to
-// Contaminated/Culled instead. "Spent"/"Low yield"/blank all proceed.
+// Reason text worth calling out in the auto-complete note when present -
+// not a gate anymore (see confirmRemove: the gate is whether the batch has
+// actually registered a harvest, not the reason text). A block pulled for
+// infestation after already giving a flush is still a real Complete, just
+// a short one - Adam's call, 2026-08-02.
 const PROBLEM_REASON_KEYWORDS=['contamin','infest','pest','mould','mold'];
 
 async function confirmRemove(){
@@ -1752,38 +1751,44 @@ async function confirmRemove(){
   const ok=await write(db.from("mn_placements").update({removed_date:todayISO(), removed_note:note}).in("id",ids),"Couldn't clear blocks");
   if(!ok) return;
 
-  const isProblemReason = note && PROBLEM_REASON_KEYWORDS.some(k=>note.toLowerCase().includes(k));
-  if(!isProblemReason){
-    // Auto-complete: symmetric to the auto incubating→fruiting movement
-    // created on Place. For each batch among the removed blocks, move
-    // whatever's still logically "Fruiting" into Complete - batchCounts()
-    // is read fresh (loadAll() already ran inside write() above), so if
-    // the user already explicitly moved some/all of this batch to
-    // Contaminated/Culled/Complete via the Move modal, that reduced count
-    // is respected and this only picks up whatever's left, never
-    // double-moving.
-    const byBatch={};
-    for(const p of toRemove){ byBatch[p.batch_id]=(byBatch[p.batch_id]||0)+1; }
-    const movRows=[];
-    for(const [batchId,removedCount] of Object.entries(byBatch)){
-      const b=batches.find(x=>x.id===batchId);
-      if(!b) continue;
-      const stillFruiting=batchCounts(b).fruiting;
-      const toComplete=Math.min(removedCount,stillFruiting);
-      if(toComplete<=0) continue;
-      const movNote=note?`Auto-completed on removal (${note})`:"Auto-completed on removal";
-      const sizes=sizesInState(b,"fruiting");
-      if(sizes.length<=1){
-        const kg=sizes.length===1?sizes[0].kg:null;
-        movRows.push({batch_id:batchId, move_date:todayISO(), from_state:"fruiting", to_state:"complete", count:toComplete, kg, note:movNote});
-      } else {
-        let rem=toComplete;
-        for(const s of sizes){ if(rem<=0) break; const take=Math.min(rem,s.count); movRows.push({batch_id:batchId, move_date:todayISO(), from_state:"fruiting", to_state:"complete", count:take, kg:s.kg, note:movNote}); rem-=take; }
-      }
+  // Auto-complete: symmetric to the auto incubating→fruiting movement
+  // created on Place. Gate is "has this batch actually registered a
+  // harvest yet" - a block removed early (infestation, contamination,
+  // whatever) after already giving at least one flush still counts as
+  // Complete, just a short one; the reason is recorded in the movement
+  // note for context rather than blocking the auto-complete. A batch with
+  // zero harvests logged at all is left as-is instead, since "Complete"
+  // would be misleading for something that never actually yielded - that
+  // genuinely different, worse outcome gets an explicit Move to
+  // Contaminated/Culled instead. batchCounts()/harvests are read fresh
+  // (loadAll() already ran inside write() above), so if the user already
+  // explicitly moved some/all of this batch elsewhere via the Move modal,
+  // that reduced count is respected and this only picks up whatever's
+  // left, never double-moving.
+  const byBatch={};
+  for(const p of toRemove){ byBatch[p.batch_id]=(byBatch[p.batch_id]||0)+1; }
+  const movRows=[];
+  for(const [batchId,removedCount] of Object.entries(byBatch)){
+    const b=batches.find(x=>x.id===batchId);
+    if(!b) continue;
+    if(!harvests.some(h=>h.batch_id===batchId)) continue;
+    const stillFruiting=batchCounts(b).fruiting;
+    const toComplete=Math.min(removedCount,stillFruiting);
+    if(toComplete<=0) continue;
+    const isProblemReason=note && PROBLEM_REASON_KEYWORDS.some(k=>note.toLowerCase().includes(k));
+    const movNote=isProblemReason ? `Complete - reduced flushes (${note})`
+      : (note?`Auto-completed on removal (${note})`:"Auto-completed on removal");
+    const sizes=sizesInState(b,"fruiting");
+    if(sizes.length<=1){
+      const kg=sizes.length===1?sizes[0].kg:null;
+      movRows.push({batch_id:batchId, move_date:todayISO(), from_state:"fruiting", to_state:"complete", count:toComplete, kg, note:movNote});
+    } else {
+      let rem=toComplete;
+      for(const s of sizes){ if(rem<=0) break; const take=Math.min(rem,s.count); movRows.push({batch_id:batchId, move_date:todayISO(), from_state:"fruiting", to_state:"complete", count:take, kg:s.kg, note:movNote}); rem-=take; }
     }
-    if(movRows.length>0){
-      await write(db.from("mn_movements").insert(movRows),"Blocks cleared, but couldn't record the auto-complete movement");
-    }
+  }
+  if(movRows.length>0){
+    await write(db.from("mn_movements").insert(movRows),"Blocks cleared, but couldn't record the auto-complete movement");
   }
   closeModal("removeModal"); removeSel.clear(); renderRoom();
 }
