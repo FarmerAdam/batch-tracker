@@ -126,6 +126,8 @@ main{max-width:1440px;margin:0 auto;padding:16px}
 .tag.mv{background:#EEF3FA;color:#2F6BAB} .tag.hv{background:#ECF4EA;color:#3F7A38} .tag.ready{background:#F1ECF7;color:#6B4E96}
 .log .del{margin-left:auto;color:var(--muted);font-size:12px}
 .log .del:hover{color:var(--danger)}
+.log .edit{margin-left:auto;color:var(--muted);font-size:12px}
+.log .edit:hover{color:var(--accent)}
 
 /* tables */
 .tablewrap{overflow-x:auto;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow)}
@@ -484,7 +486,7 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
 <!-- HARVEST MODAL -->
 <div class="modal-bg" id="harvestModal">
   <div class="modal">
-    <h3>Log harvest</h3>
+    <h3 id="harvestModalTitle">Log harvest</h3>
     <div class="sub" id="hv_sub"></div>
     <div class="row2">
       <div><label>Weight (g)</label><input type="number" id="hv_weight" min="1" inputmode="numeric" placeholder="e.g. 1850"></div>
@@ -503,7 +505,7 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
       <button class="chip" onclick="addChip('Block fell')">Block Fell</button>
     </div>
     <div class="actions">
-      <button class="btn btn-primary" onclick="saveHarvest()">Save harvest</button>
+      <button class="btn btn-primary" id="harvestModalSaveBtn" onclick="saveHarvest()">Save harvest</button>
       <button class="btn" onclick="closeModal('harvestModal')">Cancel</button>
     </div>
   </div>
@@ -1354,9 +1356,11 @@ async function saveMove(){
   if(ok){ closeModal("moveModal"); renderBatch(); }
 }
 
-let harvestSlot=null;
+let harvestSlot=null, editingHarvestId=null;
 function openHarvest(batchId, slotCode){
-  modalBatchId=batchId; harvestSlot=slotCode||null;
+  modalBatchId=batchId; harvestSlot=slotCode||null; editingHarvestId=null;
+  $("harvestModalTitle").textContent="Log harvest";
+  $("harvestModalSaveBtn").textContent="Save harvest";
   const b=batches.find(x=>x.id===batchId);
   $("hv_sub").textContent=`${b.name} #${b.batch_no}`+(harvestSlot?` · slot ${harvestSlot}`:"");
   // Flush number is per physical block, not per batch — a batch's blocks are
@@ -1375,18 +1379,31 @@ function openHarvest(batchId, slotCode){
   openModal("harvestModal");
   setTimeout(()=>$("hv_weight").focus(),100);
 }
+function editHarvest(id){
+  const h=harvests.find(x=>x.id===id); if(!h) return;
+  const b=batches.find(x=>x.id===h.batch_id);
+  modalBatchId=h.batch_id; harvestSlot=h.slot_code||null; editingHarvestId=h.id;
+  $("harvestModalTitle").textContent="Edit harvest";
+  $("harvestModalSaveBtn").textContent="Update harvest";
+  $("hv_sub").textContent=`${b?.name||"?"} #${b?.batch_no??"?"}`+(harvestSlot?` · slot ${harvestSlot}`:"");
+  $("hv_weight").value=h.weight_g; $("hv_flush").value=h.flush||""; $("hv_date").value=h.harvest_date; $("hv_note").value=h.note||"";
+  openModal("harvestModal");
+  setTimeout(()=>$("hv_weight").focus(),100);
+}
 function addChip(t){ const n=$("hv_note"); n.value=n.value?n.value+", "+t:t; }
 async function saveHarvest(){
   const w=parseFloat($("hv_weight").value);
   if(!w||w<=0){ alert("Enter the harvest weight in grams."); return; }
-  const ok=await write(db.from("mn_harvests").insert({
-    batch_id:modalBatchId, harvest_date:$("hv_date").value||todayISO(),
+  const payload={
+    harvest_date:$("hv_date").value||todayISO(),
     weight_g:w, flush:parseInt($("hv_flush").value,10)||null, note:$("hv_note").value.trim()||null,
-    slot_code:harvestSlot
-  }),"Couldn't save harvest");
+  };
+  const ok = editingHarvestId
+    ? await write(db.from("mn_harvests").update(payload).eq("id",editingHarvestId),"Couldn't update harvest")
+    : await write(db.from("mn_harvests").insert({...payload, batch_id:modalBatchId, slot_code:harvestSlot}),"Couldn't save harvest");
   if(ok){ closeModal("harvestModal");
     if($("view-room").classList.contains("active")) renderRoom(); else renderBatch();
-    harvestSlot=null;
+    harvestSlot=null; editingHarvestId=null;
   }
 }
 
@@ -1618,12 +1635,13 @@ function openSlotDetail(bayId,letter,n){
     <div class="stat"><div class="n">${hs.length}</div><div class="l">Harvests</div></div>
     <div class="stat"><div class="n">${days}</div><div class="l">Days on shelf</div></div>`;
   $("slot_log").innerHTML = hs.length
-    ? `<ul class="log">${hs.map(h=>`<li><span class="d">${fmtDate(h.harvest_date)}</span><span>${fmtWeight(Number(h.weight_g))}${h.flush?` · flush ${h.flush}`:""}${h.note?` — ${esc(h.note)}`:""}</span></li>`).join("")}</ul>`
+    ? `<ul class="log">${hs.map(h=>`<li><span class="d">${fmtDate(h.harvest_date)}</span><span>${fmtWeight(Number(h.weight_g))}${h.flush?` · flush ${h.flush}`:""}${h.note?` — ${esc(h.note)}`:""}</span><button class="edit" onclick="slotDetailEditHarvest('${h.id}')" title="Edit this harvest">✎</button></li>`).join("")}</ul>`
     : `<div style="color:var(--muted);font-size:14px">No harvests logged from this block yet.</div>`;
   openModal("slotModal");
 }
 function slotDetailLogHarvest(){ closeModal("slotModal"); openHarvest(slotDetailBatchId, slotDetailCode); }
 function slotDetailViewBatch(){ closeModal("slotModal"); openBatch(slotDetailBatchId); }
+function slotDetailEditHarvest(id){ closeModal("slotModal"); editHarvest(id); }
 
 function placeBatchSelChanged(){
   placeBatchId=$("placeSel").value;
