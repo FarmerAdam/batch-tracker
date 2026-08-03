@@ -606,7 +606,7 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
 const SUPABASE_URL = "https://jckfsvjodrrauwvpecks.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impja2ZzdmpvZHJyYXV3dnBlY2tzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5ODk4NTgsImV4cCI6MjA5NjU2NTg1OH0.ECtXTPKstyRW3Q_au5oucobZ1Axw44SDZXz368wNi4g";
 const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-const APP_VERSION = "v3.14 \u00b7 Fixed newly placed LEGACY blocks showing a previous occupant's harvest weight on a reused shelf slot \u00b7 added an edit button to harvest entries in the block detail view \u00b7 3 Aug 2026";
+const APP_VERSION = "v3.15 \u00b7 Removing blocks with zero harvests logged now requires picking Contaminated/Didn't colonise/Culled, instead of silently staying stuck as \"fruiting\" forever \u00b7 3 Aug 2026";
 
 /* ================= APPEARANCE (per-user) + BRANDING (shared) ================= */
 const ACCENTS=[
