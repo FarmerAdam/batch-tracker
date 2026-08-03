@@ -623,7 +623,7 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
 const SUPABASE_URL = "https://jckfsvjodrrauwvpecks.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impja2ZzdmpvZHJyYXV3dnBlY2tzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5ODk4NTgsImV4cCI6MjA5NjU2NTg1OH0.ECtXTPKstyRW3Q_au5oucobZ1Axw44SDZXz368wNi4g";
 const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-const APP_VERSION = "v3.18 \u00b7 Room view now flags blocks likely ready for a 2nd flush check (learned per-species timing from real harvest history, same as MAVIS's own reminder), plus a Due-for-2nd-flush count in the room stats \u00b7 3 Aug 2026";
+const APP_VERSION = "v3.19 \u00b7 Logging an unusually high/low first-flush weight now asks \"are you sure\" against the species' known yield range, to catch decimal-point-style typos before they save \u00b7 3 Aug 2026";
 
 /* ================= APPEARANCE (per-user) + BRANDING (shared) ================= */
 const ACCENTS=[
@@ -1449,6 +1449,41 @@ async function saveBatchNote(){
 async function saveHarvest(){
   const w=parseFloat($("hv_weight").value);
   if(!w||w<=0){ alert("Enter the harvest weight in grams."); return; }
+
+  // Soft sanity-check against the species' known per-block yield range
+  // (mn_yield_defaults, already used elsewhere for harvest-timing ETAs) -
+  // aimed at catching decimal-point-style typos (1850 vs 185, or grams
+  // vs kg), not flagging normal biological variance. Warns, never blocks
+  // - Adam's call 2026-08-03: a genuinely unusual harvest is still real
+  // data and shouldn't be prevented from saving.
+  //
+  // Only applies to what's clearly a FIRST flush for this placement -
+  // mn_yield_defaults' range is calibrated for a full first flush, and
+  // real second flushes are legitimately much smaller. Checked against
+  // live data before shipping this: comparing every harvest (not just
+  // first flushes) against this range would have flagged ~23% of
+  // genuinely correct historical entries, basically every second flush -
+  // scoping to first-flush-only drops that to a real ~1.5% (2 of 131).
+  // Also skipped entirely for the generic batch-level "Log harvest" (no
+  // slot) - that can represent a pooled weight across several blocks at
+  // once, so there's no single-block range to compare against.
+  if(harvestSlot){
+    const p=placementAt(harvestSlot);
+    const existingCount = p ? placementHarvests(p).length : 0;
+    const isFirstFlush = editingHarvestId ? existingCount<=1 : existingCount===0;
+    if(isFirstFlush){
+      const b=batches.find(x=>x.id===modalBatchId);
+      const yd=yieldFor(b?.species);
+      if(yd && yd.yield_kg_per_block_low!=null && yd.yield_kg_per_block_high!=null){
+        const loG=yd.yield_kg_per_block_low*1000, hiG=yd.yield_kg_per_block_high*1000;
+        if(w<loG*0.4 || w>hiG*3){
+          const range=`${yd.yield_kg_per_block_low}–${yd.yield_kg_per_block_high}kg`;
+          if(!confirm(`${w}g looks unusual — ${b.species} blocks are usually around ${range} for a first flush. Save anyway?`)) return;
+        }
+      }
+    }
+  }
+
   const payload={
     harvest_date:$("hv_date").value||todayISO(),
     weight_g:w, flush:parseInt($("hv_flush").value,10)||null, note:$("hv_note").value.trim()||null,
