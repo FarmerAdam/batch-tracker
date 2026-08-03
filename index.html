@@ -623,7 +623,7 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
 const SUPABASE_URL = "https://jckfsvjodrrauwvpecks.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impja2ZzdmpvZHJyYXV3dnBlY2tzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5ODk4NTgsImV4cCI6MjA5NjU2NTg1OH0.ECtXTPKstyRW3Q_au5oucobZ1Axw44SDZXz368wNi4g";
 const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-const APP_VERSION = "v3.19 \u00b7 Logging an unusually high/low first-flush weight now asks \"are you sure\" against the species' known yield range, to catch decimal-point-style typos before they save \u00b7 3 Aug 2026";
+const APP_VERSION = "v3.20 \u00b7 Removing blocks now rolls back cleanly if the outcome movement fails to save, same fix as placing blocks got earlier today \u00b7 3 Aug 2026";
 
 /* ================= APPEARANCE (per-user) + BRANDING (shared) ================= */
 const ACCENTS=[
@@ -2023,7 +2023,21 @@ async function confirmRemove(){
     pushStateMove(b,"complete",toComplete,movNote);
   }
   if(movRows.length>0){
-    await write(db.from("mn_movements").insert(movRows),"Blocks cleared, but couldn't record the outcome movement");
+    const {error:movErr}=await db.from("mn_movements").insert(movRows);
+    if(movErr){
+      // Same fix as confirmPlace() (item #4, 2026-08-03) - don't leave a
+      // half-done state where blocks are marked removed but the pipeline
+      // still doesn't reflect it (no matching movement). placementAt()
+      // guaranteed these were active (removed_date null) before this
+      // action, so reverting is just clearing the two fields back.
+      await db.from("mn_placements").update({removed_date:null,removed_note:null}).in("id",ids);
+      await loadAll();
+      console.error(movErr);
+      setSync("bad","Save failed");
+      alert("Couldn't record the outcome movement - the removal was undone, nothing was saved. Please try again.\n\n"+movErr.message);
+      return;
+    }
+    await loadAll();
   }
   closeModal("removeModal"); removeSel.clear(); renderRoom();
 }
