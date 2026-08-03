@@ -551,6 +551,7 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
       <button class="chip" onclick="addRemoveChip('Mouldy / off')">Mouldy / off</button>
       <button class="chip" onclick="addRemoveChip('Low yield')">Low yield</button>
     </div>
+    <div id="rm_outcomes"></div>
     <div class="actions">
       <button class="btn btn-primary" onclick="confirmRemove()">Remove <span id="rm_count"></span></button>
       <button class="btn" onclick="closeModal('removeModal')">Cancel</button>
@@ -1768,6 +1769,32 @@ function openRemoveModal(){
   $("rm_sub").textContent=`${removeSel.size} block${removeSel.size===1?"":"s"} selected. Harvests stay in batch history either way — the reason below is just so you can see later why a block came off the shelf.`;
   $("rm_note").value="";
   $("rm_count").textContent=removeSel.size;
+
+  // Blocks pulled with zero harvests ever logged don't auto-resolve to
+  // Complete (see confirmRemove) - ask what actually happened right here
+  // so they don't get stuck silently counted as "fruiting" forever because
+  // nobody remembered the separate Move screen.
+  const toRemove=[...removeSel].map(c=>placementAt(c)).filter(Boolean);
+  const byBatch={};
+  for(const p of toRemove){ byBatch[p.batch_id]=(byBatch[p.batch_id]||0)+1; }
+  const needsOutcome=Object.keys(byBatch).filter(id=>!harvests.some(h=>h.batch_id===id));
+  $("rm_outcomes").innerHTML = needsOutcome.length ? `
+    <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--line)">
+      <label>These haven't had a harvest logged yet — what happened?</label>
+      ${needsOutcome.map(id=>{
+        const b=batches.find(x=>x.id===id);
+        return `<div style="display:flex;align-items:center;gap:8px;margin-top:6px">
+          <span style="flex:1;font-size:13px">${esc(b?.name||"?")} (${byBatch[id]})</span>
+          <select data-outcome-batch="${id}" style="flex:0 0 160px">
+            <option value="">Choose…</option>
+            <option value="contaminated">Contaminated</option>
+            <option value="failed">Didn't colonise</option>
+            <option value="culled">Culled / backlog</option>
+          </select>
+        </div>`;
+      }).join("")}
+    </div>` : "";
+
   openModal("removeModal");
   setTimeout(()=>$("rm_note").focus(),100);
 }
@@ -1783,6 +1810,15 @@ async function confirmRemove(){
   const codes=[...removeSel];
   const toRemove=codes.map(c=>placementAt(c)).filter(Boolean);
   if(!toRemove.length){ closeModal("removeModal"); return; }
+
+  // Zero-harvest batches need an explicit outcome, built by openRemoveModal
+  // above - validate before writing anything so a half-picked form can't
+  // slip through.
+  const outcomeSelects=[...document.querySelectorAll('#rm_outcomes select[data-outcome-batch]')];
+  if(outcomeSelects.some(sel=>!sel.value)){ alert("Choose what happened for every batch listed below, or cancel."); return; }
+  const outcomeByBatch={};
+  for(const sel of outcomeSelects){ outcomeByBatch[sel.dataset.outcomeBatch]=sel.value; }
+
   const ids=toRemove.map(p=>p.id);
   const note=$("rm_note").value.trim()||null;
   const ok=await write(db.from("mn_placements").update({removed_date:todayISO(), removed_note:note}).in("id",ids),"Couldn't clear blocks");
@@ -1794,38 +1830,50 @@ async function confirmRemove(){
   // whatever) after already giving at least one flush still counts as
   // Complete, just a short one; the reason is recorded in the movement
   // note for context rather than blocking the auto-complete. A batch with
-  // zero harvests logged at all is left as-is instead, since "Complete"
-  // would be misleading for something that never actually yielded - that
-  // genuinely different, worse outcome gets an explicit Move to
-  // Contaminated/Culled instead. batchCounts()/harvests are read fresh
-  // (loadAll() already ran inside write() above), so if the user already
-  // explicitly moved some/all of this batch elsewhere via the Move modal,
-  // that reduced count is respected and this only picks up whatever's
-  // left, never double-moving.
+  // zero harvests logged at all used to just sit unresolved, silently
+  // stuck counted as "fruiting" forever unless someone remembered a
+  // separate Move action - fixed 2026-08-03: openRemoveModal now asks for
+  // an explicit Contaminated/Didn't-colonise/Culled outcome for exactly
+  // these batches, handled below via outcomeByBatch instead of being
+  // skipped. batchCounts()/harvests are read fresh (loadAll() already ran
+  // inside write() above), so if the user already explicitly moved some/
+  // all of this batch elsewhere via the Move modal, that reduced count is
+  // respected and this only picks up whatever's left, never double-moving.
   const byBatch={};
   for(const p of toRemove){ byBatch[p.batch_id]=(byBatch[p.batch_id]||0)+1; }
   const movRows=[];
+  const pushStateMove=(b,toState,count,noteText)=>{
+    const sizes=sizesInState(b,"fruiting");
+    if(sizes.length<=1){
+      const kg=sizes.length===1?sizes[0].kg:null;
+      movRows.push({batch_id:b.id, move_date:todayISO(), from_state:"fruiting", to_state:toState, count, kg, note:noteText});
+    } else {
+      let rem=count;
+      for(const s of sizes){ if(rem<=0) break; const take=Math.min(rem,s.count); movRows.push({batch_id:b.id, move_date:todayISO(), from_state:"fruiting", to_state:toState, count:take, kg:s.kg, note:noteText}); rem-=take; }
+    }
+  };
+  const isProblemReason=note && PROBLEM_REASON_KEYWORDS.some(k=>note.toLowerCase().includes(k));
   for(const [batchId,removedCount] of Object.entries(byBatch)){
     const b=batches.find(x=>x.id===batchId);
     if(!b) continue;
+    if(outcomeByBatch[batchId]){
+      const toMove=Math.min(removedCount,batchCounts(b).fruiting);
+      if(toMove<=0) continue;
+      const outcomeState=outcomeByBatch[batchId];
+      const outcomeNote=note ? `${STATES[outcomeState].label} on removal (${note})` : `${STATES[outcomeState].label} on removal`;
+      pushStateMove(b,outcomeState,toMove,outcomeNote);
+      continue;
+    }
     if(!harvests.some(h=>h.batch_id===batchId)) continue;
     const stillFruiting=batchCounts(b).fruiting;
     const toComplete=Math.min(removedCount,stillFruiting);
     if(toComplete<=0) continue;
-    const isProblemReason=note && PROBLEM_REASON_KEYWORDS.some(k=>note.toLowerCase().includes(k));
     const movNote=isProblemReason ? `Complete - reduced flushes (${note})`
       : (note?`Auto-completed on removal (${note})`:"Auto-completed on removal");
-    const sizes=sizesInState(b,"fruiting");
-    if(sizes.length<=1){
-      const kg=sizes.length===1?sizes[0].kg:null;
-      movRows.push({batch_id:batchId, move_date:todayISO(), from_state:"fruiting", to_state:"complete", count:toComplete, kg, note:movNote});
-    } else {
-      let rem=toComplete;
-      for(const s of sizes){ if(rem<=0) break; const take=Math.min(rem,s.count); movRows.push({batch_id:batchId, move_date:todayISO(), from_state:"fruiting", to_state:"complete", count:take, kg:s.kg, note:movNote}); rem-=take; }
-    }
+    pushStateMove(b,"complete",toComplete,movNote);
   }
   if(movRows.length>0){
-    await write(db.from("mn_movements").insert(movRows),"Blocks cleared, but couldn't record the auto-complete movement");
+    await write(db.from("mn_movements").insert(movRows),"Blocks cleared, but couldn't record the outcome movement");
   }
   closeModal("removeModal"); removeSel.clear(); renderRoom();
 }
