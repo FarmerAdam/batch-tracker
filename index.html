@@ -211,6 +211,8 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
 .slot .s-d{font-size:8px;opacity:.9}
 .slot .s-y{font-size:8px;font-weight:700}
 .slot .harv-dot{position:absolute;top:3px;right:3px;width:6px;height:6px;border-radius:50%;background:#fff;box-shadow:0 0 0 1.5px rgba(0,0,0,.15)}
+.slot .flush-due-dot{position:absolute;top:2px;right:2px;width:9px;height:9px;border-radius:50%;background:var(--st-failed);box-shadow:0 0 0 1.5px rgba(0,0,0,.2);animation:flush-due-pulse 2s ease-in-out infinite}
+@keyframes flush-due-pulse{0%,100%{opacity:1}50%{opacity:.45}}
 .mode-place .slot.empty{border-color:var(--accent);background:var(--slot-place-bg)}
 .mode-place .slot.empty.pending-place{background:var(--accent);color:var(--accent-ink);border-style:solid;transform:scale(.96)}
 .mode-place .slot.empty.pending-place::after{content:"✓";font-size:13px;font-weight:700}
@@ -621,7 +623,7 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
 const SUPABASE_URL = "https://jckfsvjodrrauwvpecks.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impja2ZzdmpvZHJyYXV3dnBlY2tzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5ODk4NTgsImV4cCI6MjA5NjU2NTg1OH0.ECtXTPKstyRW3Q_au5oucobZ1Axw44SDZXz368wNi4g";
 const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-const APP_VERSION = "v3.17 \u00b7 Placing blocks now rolls back cleanly if the fruiting-room movement fails to save, instead of possibly leaving blocks shown on the shelf but still counted as incubating \u00b7 3 Aug 2026";
+const APP_VERSION = "v3.18 \u00b7 Room view now flags blocks likely ready for a 2nd flush check (learned per-species timing from real harvest history, same as MAVIS's own reminder), plus a Due-for-2nd-flush count in the room stats \u00b7 3 Aug 2026";
 
 /* ================= APPEARANCE (per-user) + BRANDING (shared) ================= */
 const ACCENTS=[
@@ -746,6 +748,7 @@ let yieldDefaults=[]; // read-only — owned by Chef Orders (mn_yield_defaults),
 let currentBatchId=null, editingId=null;
 let roomMode="view", placeBatchId=null, pendingPlaceSel=new Set(), placeDate=null;
 let removeSel=new Set();
+let secondFlushGapData={avg:{},counts:{}}; // recomputed once per renderRoom() - see computeSecondFlushGaps
 let roomSetupEditing=false;
 
 /* species colour palette — matched to actual mushroom appearance */
@@ -1484,6 +1487,58 @@ const slotCode = (bay,letter,n)=> `B${bay.bay_no}-${letter}-${n}`;
 // above by removed_date) scopes the match to this placement's own tenure
 // in that slot.
 const placedYield = p => harvests.filter(h=>h.slot_code===p.slot_code && h.batch_id===p.batch_id && h.harvest_date>=p.placed_date && (!p.removed_date || h.harvest_date<=p.removed_date)).reduce((s,h)=>s+Number(h.weight_g),0);
+// Same date-window scoping as placedYield above, but returns the actual
+// harvest rows rather than just a weight total - lets dueForSecondFlush
+// tell "harvested once, might be due for a second flush" apart from
+// "harvested twice already, nothing more to check here".
+const placementHarvests = p => harvests.filter(h=>h.slot_code===p.slot_code && h.batch_id===p.batch_id && h.harvest_date>=p.placed_date && (!p.removed_date || h.harvest_date<=p.removed_date));
+
+const SECOND_FLUSH_MIN_SAMPLES = 3; // same "don't trust it 'til there's a
+// real sample size" bar MAVIS's own batch_tracker.py uses for the
+// identical figure - a species with only 1-2 logged second flushes isn't
+// a real average yet, so it just doesn't get a due-date badge.
+
+// Learns the real first→second-flush gap per species from actual harvest
+// history - same approach as MAVIS's compute_species_second_flush_days
+// (nodes/mavis/capabilities/batch_tracker.py, built 2026-08-03): groups
+// harvests by (batch_id, slot_code), takes the gap between the 1st and
+// 2nd harvest date logged against that exact slot, averages it per
+// species. Zero/negative gaps (two harvests logged the same day against
+// the same slot - a handful of these exist in real data, almost
+// certainly a same-day duplicate entry rather than an overnight second
+// flush) are excluded so they can't drag the average down.
+function computeSecondFlushGaps(){
+  const speciesByBatch={}; for(const b of batches) speciesByBatch[b.id]=b.species;
+  const byKey={};
+  for(const h of harvests){
+    const key=h.batch_id+"|"+h.slot_code;
+    (byKey[key]=byKey[key]||[]).push(h.harvest_date);
+  }
+  const samples={};
+  for(const key in byKey){
+    const dates=byKey[key].slice().sort();
+    if(dates.length<2) continue;
+    const gap=daysBetween(dates[0],dates[1]);
+    if(gap<=0) continue;
+    const species=speciesByBatch[key.split("|")[0]];
+    if(!species) continue;
+    (samples[species]=samples[species]||[]).push(gap);
+  }
+  const avg={}, counts={};
+  for(const sp in samples){ counts[sp]=samples[sp].length; avg[sp]=Math.round(samples[sp].reduce((s,d)=>s+d,0)/samples[sp].length); }
+  return {avg,counts};
+}
+
+// A placement is "due" once it's had exactly one harvest and enough time
+// has passed since that harvest to expect a second flush, per that
+// species' learned gap (see SECOND_FLUSH_MIN_SAMPLES above for the gate).
+function dueForSecondFlush(p){
+  const hs=placementHarvests(p);
+  if(hs.length!==1) return false;
+  const species=batches.find(x=>x.id===p.batch_id)?.species;
+  if(!species || (secondFlushGapData.counts[species]||0)<SECOND_FLUSH_MIN_SAMPLES) return false;
+  return daysBetween(hs[0].harvest_date,todayISO()) >= secondFlushGapData.avg[species];
+}
 
 document.querySelectorAll("#roomModes button").forEach(b=>b.onclick=()=>{
   roomMode=b.dataset.mode;
@@ -1500,7 +1555,8 @@ function roomStats(){
   const yld=active.reduce((s,p)=>s+placedYield(p),0);
   const ages=active.map(p=>daysBetween(p.placed_date,todayISO()));
   const avgAge=ages.length?Math.round(ages.reduce((a,b)=>a+b,0)/ages.length):0;
-  return {occupied:active.length,totalSlots,yld,avgAge};
+  const dueSecondFlush=active.filter(dueForSecondFlush).length;
+  return {occupied:active.length,totalSlots,yld,avgAge,dueSecondFlush};
 }
 
 function renderRoom(){
@@ -1510,6 +1566,7 @@ function renderRoom(){
     wrap.innerHTML=`<div class="empty">No room set up yet.<br><br><button class="btn btn-primary" onclick="seedRoom()">Build my room automatically</button> &nbsp; or <button class="btn" onclick="openRoomSetup()">set up manually</button><br><br><span style="font-size:13px">The auto-build creates your 2 walls (3 bays × 9 rows × 6) and centre island (5 rows × 24). Editable after.</span></div>`;
     $("roomStats").innerHTML=""; $("placeBanner").innerHTML=""; return;
   }
+  secondFlushGapData=computeSecondFlushGaps();
   // mode class
   wrap.className = "mode-"+roomMode;
   // place banner
@@ -1572,7 +1629,8 @@ function renderRoom(){
     <div class="stat"><div class="n">${s.occupied}/${s.totalSlots}</div><div class="l">Slots filled</div></div>
     <div class="stat"><div class="n">${s.totalSlots?Math.round(s.occupied/s.totalSlots*100):0}%</div><div class="l">Occupancy</div></div>
     <div class="stat"><div class="n">${fmtWeight(s.yld)}</div><div class="l">Yield on shelves</div></div>
-    <div class="stat"><div class="n">${s.avgAge}</div><div class="l">Avg days on shelf</div></div>`;
+    <div class="stat"><div class="n">${s.avgAge}</div><div class="l">Avg days on shelf</div></div>
+    <div class="stat"><div class="n"${s.dueSecondFlush?` style="color:var(--st-failed)"`:""}>${s.dueSecondFlush}</div><div class="l">Due for 2nd flush</div></div>`;
   // species legend (only species currently placed)
   const placedSpecies=[...new Set(placements.filter(p=>!p.removed_date).map(p=>batches.find(b=>b.id===p.batch_id)?.species).filter(Boolean))];
   const legend = placedSpecies.length ? `<div class="room-legend">${placedSpecies.map(sp=>`<span><i style="background:${speciesColor(sp)}"></i>${esc(sp)}</span>`).join("")}</div>` : "";
@@ -1612,10 +1670,12 @@ function bayHTML(bay){
       const days=daysBetween(p.placed_date,todayISO());
       const y=placedYield(p);
       const hasHarv=y>0;
+      const dueFlush=dueForSecondFlush(p);
       const sel=removeSel.has(code)?" sel":"";
       const dragAttrs = ra ? ` draggable="true" ondragstart="rearrangeDragStart(event,'${code}')" ondragend="rearrangeDragEnd(event)" ondragover="rearrangeDragOver(event)" ondragenter="rearrangeDragEnter(event)" ondragleave="rearrangeDragLeave(event)" ondrop="rearrangeDrop(event,'${code}')"` : "";
-      return `<div class="slot full${sel}" id="sl_${code}" style="background:${col};color:${ink}" title="${code} · ${esc(b?.name||"")}" onclick="slotTap('${bay.id}','${letter}',${n})"${dragAttrs}>
-        ${hasHarv?`<span class="harv-dot"></span>`:""}
+      const titleSuffix = dueFlush ? " · likely ready for a 2nd flush check" : "";
+      return `<div class="slot full${sel}" id="sl_${code}" style="background:${col};color:${ink}" title="${code} · ${esc(b?.name||"")}${titleSuffix}" onclick="slotTap('${bay.id}','${letter}',${n})"${dragAttrs}>
+        ${dueFlush?`<span class="flush-due-dot" title="Likely ready for a 2nd flush check"></span>`:hasHarv?`<span class="harv-dot"></span>`:""}
         <span class="s-no">#${b?.batch_no??"?"}</span>
         <span class="s-sp">${esc(b?.species||"")}</span>
         <span class="s-d">${days}d</span>
