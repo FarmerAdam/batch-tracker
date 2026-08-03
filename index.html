@@ -32,6 +32,7 @@
 [data-theme="dark"] .tag.mv{background:#22303f;color:#9cc4e8}
 [data-theme="dark"] .tag.hv{background:#22331e;color:#9fd494}
 [data-theme="dark"] .tag.ready{background:#2E2740;color:#C4A9E8}
+[data-theme="dark"] .tag.note{background:#3A2F18;color:#E8C77A}
 *{box-sizing:border-box;margin:0;padding:0}
 html{-webkit-text-size-adjust:100%}
 body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink);font-size:15px;line-height:1.45}
@@ -123,7 +124,7 @@ main{max-width:1440px;margin:0 auto;padding:16px}
 .log li:last-child{border-bottom:none}
 .log .d{flex:none;width:86px;color:var(--muted)}
 .log .tag{flex:none;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;padding:2px 7px;border-radius:5px;height:fit-content}
-.tag.mv{background:#EEF3FA;color:#2F6BAB} .tag.hv{background:#ECF4EA;color:#3F7A38} .tag.ready{background:#F1ECF7;color:#6B4E96}
+.tag.mv{background:#EEF3FA;color:#2F6BAB} .tag.hv{background:#ECF4EA;color:#3F7A38} .tag.ready{background:#F1ECF7;color:#6B4E96} .tag.note{background:#FBF3E3;color:#8A6B1F}
 .log .del{margin-left:auto;color:var(--muted);font-size:12px}
 .log .del:hover{color:var(--danger)}
 .log .edit{margin-left:auto;color:var(--muted);font-size:18px;line-height:1;padding:4px}
@@ -483,6 +484,20 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
   </div>
 </div>
 
+<!-- BATCH NOTE MODAL -->
+<div class="modal-bg" id="noteModal">
+  <div class="modal">
+    <h3>Add note</h3>
+    <div class="sub" id="note_sub"></div>
+    <label>Date</label><input type="date" id="note_date">
+    <label>Note</label><textarea id="note_text" rows="3" placeholder="Growth looking slow, slight surface mould on 2 blocks…"></textarea>
+    <div class="actions">
+      <button class="btn btn-primary" onclick="saveBatchNote()">Save note</button>
+      <button class="btn" onclick="closeModal('noteModal')">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <!-- HARVEST MODAL -->
 <div class="modal-bg" id="harvestModal">
   <div class="modal">
@@ -606,7 +621,7 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
 const SUPABASE_URL = "https://jckfsvjodrrauwvpecks.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impja2ZzdmpvZHJyYXV3dnBlY2tzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5ODk4NTgsImV4cCI6MjA5NjU2NTg1OH0.ECtXTPKstyRW3Q_au5oucobZ1Axw44SDZXz368wNi4g";
 const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-const APP_VERSION = "v3.15 \u00b7 Removing blocks with zero harvests logged now requires picking Contaminated/Didn't colonise/Culled, instead of silently staying stuck as \"fruiting\" forever \u00b7 3 Aug 2026";
+const APP_VERSION = "v3.16 \u00b7 Added a timestamped growth/observation notes log per batch (Add note button, separate from the one-off setup notes field) \u00b7 3 Aug 2026";
 
 /* ================= APPEARANCE (per-user) + BRANDING (shared) ================= */
 const ACCENTS=[
@@ -725,7 +740,7 @@ const STATES = {
 };
 const STATE_ORDER = ["incubating","fruiting","complete","contaminated","failed","culled"];
 
-let batches=[], movements=[], harvests=[], costs=[];
+let batches=[], movements=[], harvests=[], costs=[], batchNotes=[];
 let zones=[], bays=[], placements=[];
 let yieldDefaults=[]; // read-only — owned by Chef Orders (mn_yield_defaults), used here for harvest-timing ETAs
 let currentBatchId=null, editingId=null;
@@ -954,13 +969,13 @@ function resolvedBatchCost(b){
 }
 
 /* ================= DATA ================= */
-function cache(){ try{ localStorage.setItem("mn_cache", JSON.stringify({batches,movements,harvests,costs,zones,bays,placements,yieldDefaults})); }catch(e){} }
-function loadCache(){ try{ const d=JSON.parse(localStorage.getItem("mn_cache")); if(d){batches=d.batches||[];movements=d.movements||[];harvests=d.harvests||[];costs=d.costs||[];zones=d.zones||[];bays=d.bays||[];placements=d.placements||[];yieldDefaults=d.yieldDefaults||[];} }catch(e){} }
+function cache(){ try{ localStorage.setItem("mn_cache", JSON.stringify({batches,movements,harvests,costs,zones,bays,placements,yieldDefaults,batchNotes})); }catch(e){} }
+function loadCache(){ try{ const d=JSON.parse(localStorage.getItem("mn_cache")); if(d){batches=d.batches||[];movements=d.movements||[];harvests=d.harvests||[];costs=d.costs||[];zones=d.zones||[];bays=d.bays||[];placements=d.placements||[];yieldDefaults=d.yieldDefaults||[];batchNotes=d.batchNotes||[];} }catch(e){} }
 
 async function loadAll(){
   setSync("","Syncing…");
   try{
-    const [b,m,h,c,z,ba,pl,yd] = await Promise.all([
+    const [b,m,h,c,z,ba,pl,yd,bn] = await Promise.all([
       db.from("mn_batches").select("*").order("batch_no",{ascending:false}),
       db.from("mn_movements").select("*"),
       db.from("mn_harvests").select("*"),
@@ -968,7 +983,8 @@ async function loadAll(){
       db.from("mn_zones").select("*").order("sort_order"),
       db.from("mn_bays").select("*").order("sort_order"),
       db.from("mn_placements").select("*"),
-      db.from("mn_yield_defaults").select("*")
+      db.from("mn_yield_defaults").select("*"),
+      db.from("mn_batch_notes").select("*")
     ]);
     if(b.error||m.error||h.error||c.error) throw (b.error||m.error||h.error||c.error);
     batches=b.data; movements=m.data; harvests=h.data; costs=c.data;
@@ -976,6 +992,8 @@ async function loadAll(){
     if(z.error) console.warn("Room tables not found yet — run setup_room.sql.",z.error);
     yieldDefaults = yd.error ? [] : yd.data;
     if(yd.error) console.warn("Yield defaults (Chef Orders table) not readable yet — harvest ETA badges will be hidden.",yd.error);
+    batchNotes = bn.error ? [] : bn.data;
+    if(bn.error) console.warn("mn_batch_notes table not found yet — growth/observation notes will be hidden.",bn.error);
     cache(); setSync("ok","Synced");
   }catch(e){
     console.error(e); loadCache();
@@ -1105,7 +1123,9 @@ function renderBatch(){
     ...harvests.filter(h=>h.batch_id===b.id).map(h=>({type:"hv",date:h.harvest_date,id:h.id,created:h.created_at,
       text:`${fmtWeight(Number(h.weight_g))}${h.flush?` · flush ${h.flush}`:""}${h.note?` — ${esc(h.note)}`:""}`})),
     ...(b.ready_date?[{type:"ready",date:b.ready_date,id:b.id,created:b.ready_date+"T12:00:00",
-      text:`Marked ready to fruit — Incubating → Ready to fruit`}]:[])
+      text:`Marked ready to fruit — Incubating → Ready to fruit`}]:[]),
+    ...batchNotes.filter(n=>n.batch_id===b.id).map(n=>({type:"note",date:n.note_date,id:n.id,created:n.created_at,
+      text:esc(n.note)}))
   ].sort((a,x)=> a.date===x.date ? (a.created<x.created?1:-1) : (a.date<x.date?1:-1));
 
   $("view-batch").innerHTML = `
@@ -1144,6 +1164,7 @@ function renderBatch(){
       <div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap">
         <button class="btn btn-primary" onclick="openMove('${b.id}')">Move blocks</button>
         <button class="btn btn-primary" onclick="openHarvest('${b.id}')">Log harvest</button>
+        <button class="btn" onclick="openNoteModal('${b.id}')">Add note</button>
       </div>
     </div>
 
@@ -1164,7 +1185,7 @@ function renderBatch(){
       <h3>Activity log</h3>
       <ul class="log">${ log.length ? log.map(e=>`
         <li><span class="d">${fmtDate(e.date)}</span>
-            <span class="tag ${e.type}">${e.type==="mv"?"Move":e.type==="hv"?"Harvest":"Ready"}</span>
+            <span class="tag ${e.type}">${e.type==="mv"?"Move":e.type==="hv"?"Harvest":e.type==="ready"?"Ready":"Note"}</span>
             <span>${e.text}</span>
             <button class="del" onclick="deleteLog('${e.type}','${e.id}')">✕</button></li>`).join("")
         : `<li style="color:var(--muted)">Nothing yet — all ${b.blocks_total} blocks incubating since ${fmtDate(b.inoc_date)}.</li>` }
@@ -1278,7 +1299,8 @@ async function deleteBatch(id){
 async function deleteLog(type,id){
   if(!confirm("Delete this entry?")) return;
   if(type==="ready"){ await clearReadyDate(id); return; }
-  await write(db.from(type==="mv"?"mn_movements":"mn_harvests").delete().eq("id",id),"Couldn't delete entry");
+  const table = type==="mv" ? "mn_movements" : type==="note" ? "mn_batch_notes" : "mn_harvests";
+  await write(db.from(table).delete().eq("id",id),"Couldn't delete entry");
   renderBatch();
 }
 
@@ -1396,6 +1418,31 @@ function editHarvest(id){
   setTimeout(()=>$("hv_weight").focus(),100);
 }
 function addChip(t){ const n=$("hv_note"); n.value=n.value?n.value+", "+t:t; }
+
+// Timestamped growth/observation notes - separate from the batch's own
+// single `notes` field (tech/lot details, set once at creation), which
+// gets silently overwritten on every edit. This is an append-only log,
+// same shape as movements/harvests, for "periodically checked, notes
+// made on growth rate" - previously nowhere to actually go without
+// clobbering the last observation.
+function openNoteModal(batchId){
+  modalBatchId=batchId;
+  const b=batches.find(x=>x.id===batchId);
+  $("note_sub").textContent=`${b.name} #${b.batch_no}`;
+  $("note_date").value=todayISO();
+  $("note_text").value="";
+  openModal("noteModal");
+  setTimeout(()=>$("note_text").focus(),100);
+}
+async function saveBatchNote(){
+  const text=$("note_text").value.trim();
+  if(!text){ alert("Enter a note."); return; }
+  const ok=await write(db.from("mn_batch_notes").insert({
+    batch_id:modalBatchId, note_date:$("note_date").value||todayISO(), note:text
+  }),"Couldn't save note");
+  if(ok){ closeModal("noteModal"); renderBatch(); }
+}
+
 async function saveHarvest(){
   const w=parseFloat($("hv_weight").value);
   if(!w||w<=0){ alert("Enter the harvest weight in grams."); return; }
