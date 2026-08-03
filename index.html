@@ -1370,8 +1370,12 @@ function openHarvest(batchId, slotCode){
   // when there's no slot (the generic "Log harvest" button on batch detail,
   // not tied to a physical location), fall back to the batch-wide count since
   // there's no way to tell which block it belongs to.
+  // Also bound below by the current placement's placed_date (same fix/reason
+  // as placedYield above) - a reused slot on a shared LEGACY batch_id would
+  // otherwise pull in a previous occupant's flush count too.
+  const activePlacement = harvestSlot ? placementAt(harvestSlot) : null;
   const relevant = harvestSlot
-    ? harvests.filter(h=>h.batch_id===batchId && h.slot_code===harvestSlot)
+    ? harvests.filter(h=>h.batch_id===batchId && h.slot_code===harvestSlot && (!activePlacement || h.harvest_date>=activePlacement.placed_date))
     : harvests.filter(h=>h.batch_id===batchId && !h.slot_code);
   const flushes=relevant.map(h=>h.flush||0);
   $("hv_flush").value=(flushes.length?Math.max(...flushes):0)+1;
@@ -1422,7 +1426,16 @@ const rowLetter = i => { let s=""; i++; while(i>0){ i--; s=String.fromCharCode(6
 const baysOf = z => bays.filter(b=>b.zone_id===z.id).sort((a,b)=>(a.sort_order-b.sort_order)||(a.bay_no-b.bay_no));
 const placementAt = code => placements.find(p=>p.slot_code===code && !p.removed_date);
 const slotCode = (bay,letter,n)=> `B${bay.bay_no}-${letter}-${n}`;
-const placedYield = p => harvests.filter(h=>h.slot_code===p.slot_code && (!p.removed_date || h.harvest_date<=p.removed_date) && h.batch_id===p.batch_id).reduce((s,h)=>s+Number(h.weight_g),0);
+// Matching on slot_code + batch_id alone isn't enough to identify THIS
+// physical placement - a shelf slot gets reused over time, and a shared
+// batch_id (LEGACY batches especially, which keep absorbing fresh blocks
+// under one long-lived batch_id) means an earlier occupant's old harvests
+// can share both slot_code and batch_id with a brand-new block. Bug found
+// 2026-08-03: newly placed legacy blocks immediately showed a previous
+// occupant's harvest weight. Bounding below by placed_date (not just
+// above by removed_date) scopes the match to this placement's own tenure
+// in that slot.
+const placedYield = p => harvests.filter(h=>h.slot_code===p.slot_code && h.batch_id===p.batch_id && h.harvest_date>=p.placed_date && (!p.removed_date || h.harvest_date<=p.removed_date)).reduce((s,h)=>s+Number(h.weight_g),0);
 
 document.querySelectorAll("#roomModes button").forEach(b=>b.onclick=()=>{
   roomMode=b.dataset.mode;
@@ -1623,7 +1636,10 @@ function openSlotDetail(bayId,letter,n){
   const p=placementAt(code);
   if(!p) return;
   const b=batches.find(x=>x.id===p.batch_id);
-  const hs=harvests.filter(h=>h.slot_code===code && h.batch_id===p.batch_id && (!p.removed_date||h.harvest_date<=p.removed_date))
+  // See placedYield's comment above - must also bound below by placed_date,
+  // not just above by removed_date, or a reused slot's previous occupant's
+  // harvests bleed into this placement (same bug, same fix).
+  const hs=harvests.filter(h=>h.slot_code===code && h.batch_id===p.batch_id && h.harvest_date>=p.placed_date && (!p.removed_date||h.harvest_date<=p.removed_date))
     .sort((a,x)=> a.harvest_date===x.harvest_date ? (a.created_at<x.created_at?1:-1) : (a.harvest_date<x.harvest_date?1:-1));
   const totalY=hs.reduce((s,h)=>s+Number(h.weight_g),0);
   const days=daysBetween(p.placed_date,todayISO());
