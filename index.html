@@ -1252,7 +1252,7 @@ function renderBlockLines(){
     <div class="blkline">
       <input type="number" min="1" placeholder="count" value="${l.count}" oninput="blockLineState[${i}].count=this.value;updateBlockTotal()">
       <span class="mult">×</span>
-      <input type="number" step="0.1" min="0" placeholder="kg" value="${l.kg}" oninput="blockLineState[${i}].kg=this.value;updateBlockTotal()">
+      <input type="number" step="0.1" min="0" placeholder="kg" value="${l.kg}" oninput="blockLineState[${i}].kg=this.value;updateBlockTotal()" onchange="ensureBlockSizeConfigured(parseFloat(this.value))">
       <span class="mult">kg</span>
       ${blockLineState.length>1?`<button class="btn btn-sm x" onclick="removeBlockLine(${i})">✕</button>`:""}
     </div>`).join("");
@@ -2305,6 +2305,29 @@ async function loadSettings(){
 function applyBlockWaterConfig(map){
   BLOCK_WATER_L = map;
   blockWaterState = Object.entries(BLOCK_WATER_L).map(([kg,water])=>({kg:Number(kg),water:Number(water)})).sort((a,b)=>b.kg-a.kg);
+}
+/* Fires whenever a block-size kg field is edited (batch form). If the size
+   isn't in BLOCK_WATER_L yet, costing silently assumed 100% dry (see
+   dryKgForLine's `?? 0` fallback) — real bug found 2026-08-12 (a 2.4kg
+   Maitake batch got costed with zero water backed out). Prompting for the
+   dry weight up front, instead of a silent wrong default, is the fix. */
+async function ensureBlockSizeConfigured(kg){
+  if(!(kg>0)) return;
+  kg=Math.round(kg*100)/100;
+  const known=Object.keys(BLOCK_WATER_L).some(k=>Math.abs(Number(k)-kg)<0.001);
+  if(known) return;
+  const answer=prompt(`New block size: ${kg}kg (hydrated).\n\nHow many kg of that is dry substrate, once water is backed out?\n(Leave blank / Cancel to skip for now — it'll be costed as fully dry until configured.)`);
+  if(answer===null || answer.trim()==="") return;
+  const dry=parseFloat(answer);
+  if(!(dry>0) || dry>kg){ alert(`That doesn't look right — dry weight should be more than 0 and no more than ${kg}kg. This size is still unconfigured; add it any time in Costs → block sizes.`); return; }
+  const water=Math.round((kg-dry)*100)/100;
+  BLOCK_WATER_L[kg]=water;
+  blockWaterState=Object.entries(BLOCK_WATER_L).map(([k,w])=>({kg:Number(k),water:Number(w)})).sort((a,b)=>b.kg-a.kg);
+  localStorage.setItem("mn_blockwater",JSON.stringify(BLOCK_WATER_L));
+  try{ await db.from("mn_settings").upsert({key:"block_water",value:JSON.stringify(BLOCK_WATER_L)},{onConflict:"key"}); }
+  catch(e){ console.warn("Couldn't sync new block size to Supabase.",e); }
+  renderCosts();
+  alert(`Got it — ${kg}kg blocks now cost as ${dry}kg dry (${water}L backed out as water). Adjust any time in Costs → block sizes.`);
 }
 function addBlockWaterRow(){ blockWaterState.push({kg:"",water:""}); renderCosts(); }
 function removeBlockWaterRow(i){ blockWaterState.splice(i,1); renderCosts(); }
