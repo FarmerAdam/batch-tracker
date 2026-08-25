@@ -95,10 +95,17 @@ header{background:var(--card);border-bottom:1px solid var(--line);position:stick
 .sync.ok .dot{background:var(--st-complete)} .sync.bad .dot{background:var(--st-contaminated)}
 .hdr-gear{flex:none;font-size:18px;color:var(--muted);padding:4px 6px;line-height:1;border-radius:6px}
 .hdr-gear:hover{color:var(--ink);background:var(--bg)}
+/* Square tiles (2026-08-25 follow-up phase), not circles - ties the
+   accent picker into the same block-grid-tile language as the rest of
+   the rebrand rather than a generic circular swatch picker. Selected
+   state is a rust border + a small corner flag (a plain CSS triangle,
+   same construction as Farm Panel's own directional-wedge motif) instead
+   of a checkmark glyph - a checkmark is about as generic/borrowed-
+   feeling a "selected" indicator as exists. */
 .swatches{display:flex;flex-wrap:wrap;gap:10px;margin-top:6px}
-.swatch{width:34px;height:34px;border-radius:50%;cursor:pointer;border:2px solid transparent;position:relative}
-.swatch.sel{border-color:var(--ink)}
-.swatch.sel::after{content:"✓";position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px;font-weight:700;text-shadow:0 0 2px rgba(0,0,0,.5)}
+.swatch{width:34px;height:34px;border-radius:6px;cursor:pointer;border:2px solid var(--line);position:relative;overflow:hidden}
+.swatch.sel{border-color:var(--rust)}
+.swatch.sel::after{content:"";position:absolute;top:0;right:0;width:0;height:0;border-top:9px solid var(--rust);border-left:9px solid transparent}
 #pf_themeseg{margin-top:6px}
 #pf_themeseg button.active{background:var(--accent);color:var(--accent-ink)}
 .logo-prev{height:38px;border:1px solid var(--line);border-radius:6px;background:#fff;padding:3px}
@@ -253,17 +260,26 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
 .blkline .x{font-size:13px;flex:none}
 .blkline .mult{color:var(--muted);flex:none}
 .row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-.modal-bg{position:fixed;inset:0;background:rgba(42,36,27,.45);display:none;align-items:flex-end;justify-content:center;z-index:100;padding:0}
+/* Bottom-sheet-on-mobile/centered-on-desktop behavior kept as-is - a
+   generic, functional pattern shared by countless apps, not worth
+   changing for its own sake. Chrome brought in line with the rest of
+   the rebrand instead (2026-08-25 follow-up phase): solid border + a
+   rust top accent, same "station/card" family as the pipeline, plus the
+   dot-grid corner texture already established as a cross-app motif
+   (Farm Panel's own card corners use the identical recipe) - closes one
+   of the elements flagged as most likely to still read as borrowed. */
+.modal-bg{position:fixed;inset:0;background:rgba(26,26,26,.55);display:none;align-items:flex-end;justify-content:center;z-index:100;padding:0}
 .modal-bg.open{display:flex}
-.modal{background:var(--card);border-radius:14px 14px 0 0;padding:20px;width:100%;max-width:480px;max-height:88vh;overflow-y:auto}
-.modal h3{font-size:18px;margin-bottom:4px}
+.modal{background:var(--card);border:1px solid var(--line);border-top:3px solid var(--rust);border-radius:var(--radius) var(--radius) 0 0;padding:20px;width:100%;max-width:480px;max-height:88vh;overflow-y:auto;position:relative}
+.modal::before{content:"";position:absolute;top:14px;right:16px;width:26px;height:18px;background-image:radial-gradient(circle,var(--rust) 1px,transparent 1.4px);background-size:6px 6px;opacity:.3;pointer-events:none}
+.modal h3{font-size:18px;margin-bottom:4px;padding-right:30px}
 .modal .sub{font-size:13px;color:var(--muted)}
 .modal .actions{display:flex;gap:10px;margin-top:20px}
 .modal .actions .btn{flex:1;justify-content:center}
 .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
 .chip{font-size:13px;padding:6px 11px;border:1px solid var(--line);border-radius:99px;background:var(--slot-empty-bg)}
 .chip:active{background:var(--bg)}
-@media(min-width:560px){.modal-bg{align-items:center;padding:20px}.modal{border-radius:14px}}
+@media(min-width:560px){.modal-bg{align-items:center;padding:20px}.modal{border-radius:var(--radius)}}
 
 /* segmented control */
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--card)}
@@ -327,7 +343,7 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
 .rl-btn:hover{background:#FBEEEA}
 .bay-sel{font-size:11px;font-weight:600;color:var(--danger);border:1px solid #E5C5BE;border-radius:5px;padding:2px 7px;margin-left:6px;background:#fff;vertical-align:middle}
 .bay-sel:hover{background:#FBEEEA}
-.remove-bar{display:none;position:sticky;bottom:14px;z-index:60;margin:16px auto 0;max-width:420px;background:var(--ink);color:#fff;border-radius:99px;padding:10px 12px 10px 20px;align-items:center;justify-content:space-between;gap:10px;box-shadow:0 6px 20px rgba(42,36,27,.3)}
+.remove-bar{display:none;position:sticky;bottom:14px;z-index:60;margin:16px auto 0;max-width:420px;background:var(--surface-2);color:var(--ink);border:1px solid var(--line);border-top:3px solid var(--rust);border-radius:var(--radius);padding:10px 14px;align-items:center;justify-content:space-between;gap:10px;box-shadow:var(--shadow)}
 .remove-bar.show{display:flex}
 .remove-bar .btn{box-shadow:none}
 .room-legend{display:flex;flex-wrap:wrap;gap:12px;font-size:13px;color:var(--muted);margin:4px 0 16px}
