@@ -79,6 +79,10 @@ h1,h2,h3{font-family:var(--display);font-weight:700;text-transform:uppercase;let
 button{font:inherit;cursor:pointer;border:none;background:none;color:inherit}
 input,select,textarea{font:inherit;color:inherit;width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:#fff}
 input:focus,select:focus,textarea:focus,button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+/* Native checkbox/range fill defaults to the browser's own blue - the
+   one color explicitly ruled out at the start of this rebrand. Caught
+   on the Labels view's field checkboxes + logo-size slider. */
+input[type="checkbox"],input[type="radio"],input[type="range"]{accent-color:var(--accent);width:auto}
 label{display:block;font-size:13px;font-weight:600;color:var(--muted);margin:14px 0 5px}
 a{color:var(--accent)}
 
@@ -247,7 +251,7 @@ tr.dragging{opacity:.4}
 table{border-collapse:collapse;width:100%;font-size:14px;min-width:760px}
 th,td{padding:10px 12px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
 th:first-child,td:first-child{text-align:left}
-th{font-size:12px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);background:#FBFAF6}
+th{font-family:var(--display);font-weight:500;font-size:12px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);background:#FBFAF6}
 tr:last-child td{border-bottom:none}
 td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font-weight:700}
 .costs-table input{width:90px;padding:7px 8px;text-align:right}
