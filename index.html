@@ -83,6 +83,13 @@ input:focus,select:focus,textarea:focus,button:focus-visible{outline:2px solid v
    one color explicitly ruled out at the start of this rebrand. Caught
    on the Labels view's field checkboxes + logo-size slider. */
 input[type="checkbox"],input[type="radio"],input[type="range"]{accent-color:var(--accent);width:auto}
+/* Native number-input step arrows are OS-themed, not page-themed - on
+   Costs' cost fields they render bright white regardless of dark mode
+   (Adam's report). Browsers won't let CSS recolor them, only hide them,
+   so they're dropped app-wide rather than left glowing on every $/kg
+   field - typing or the keyboard up/down keys still work fine. */
+input[type="number"]{-moz-appearance:textfield}
+input[type="number"]::-webkit-outer-spin-button,input[type="number"]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
 label{display:block;font-size:13px;font-weight:600;color:var(--muted);margin:14px 0 5px}
 a{color:var(--accent)}
 
@@ -129,6 +136,14 @@ main{max-width:1440px;margin:0 auto;padding:16px}
 .btn-sm{padding:7px 11px;font-size:13px}
 .toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:16px}
 .toolbar .spacer{flex:1}
+/* Literal dot-grid button (2026-08-25, Analytics follow-up) - the
+   dot-grid motif used as decorative corner texture elsewhere, but here
+   as an actual clickable affordance, matching Farm Panel's own
+   dot-grid-as-icon convention. Reveals/hides the secondary timing +
+   efficiency columns so the table opens on headline numbers only. */
+.dot-toggle{width:38px;height:38px;flex:none;border:1px solid var(--line);border-radius:8px;background-color:var(--card);box-shadow:var(--shadow);background-image:radial-gradient(circle,var(--muted) 1.3px,transparent 1.8px);background-size:7px 7px;background-position:center}
+.dot-toggle:hover{border-color:var(--rust-dim)}
+.dot-toggle[aria-pressed="true"]{border-color:var(--rust);background-image:radial-gradient(circle,var(--rust) 1.3px,transparent 1.8px)}
 .search{max-width:340px}
 
 /* pipeline - reframed 2026-08-25 from a vertical Trello-style kanban
@@ -196,7 +211,7 @@ main{max-width:1440px;margin:0 auto;padding:16px}
    pinwheelSpinnerHTML), not here - the spinner's outer orbit track/pill
    sit outside that rotated group and shouldn't spin with it, so this
    can't be a blanket transform on the whole .pinwheel svg like before. */
-.pinwheel{flex:none}
+.pinwheel{flex:none;overflow:visible}
 .pinwheel-track{fill:none;stroke:var(--line);stroke-width:14}
 .pinwheel-seg{fill:none;stroke-width:14;stroke-linecap:butt}
 /* Rim ticks (2026-08-25) - see pinwheelTicksHTML()'s own comment. */
@@ -210,8 +225,19 @@ main{max-width:1440px;margin:0 auto;padding:16px}
    colors underneath it. */
 .pinwheel-orbit-track{fill:none;stroke:#FFFFFF;stroke-opacity:.5;stroke-width:2}
 .pinwheel-orbit-pill{fill:none;stroke:#4A4540;stroke-width:5;stroke-linecap:round}
+/* On a batch card, the orbit ring is a hover-only flourish (Adam's ask,
+   2026-08-25) - hidden at rest, faded + spun in only while the card is
+   hovered, rather than a permanent distraction on every card. The
+   spinner keeps its own always-on orbit exactly as before. Relies on
+   .pinwheel's overflow:visible above since PINWHEEL_ORBIT_R (58) sits
+   outside the card variant's 100x100 viewBox, unlike the spinner's own
+   enlarged 130x130 canvas - the small bleed past the nominal box reads
+   as a subtle halo, not a hard clip. */
+.card .pinwheel-orbit-track,.card .pinwheel-orbit-pill{opacity:0;transition:opacity .18s}
+.card:hover .pinwheel-orbit-track,.card:hover .pinwheel-orbit-pill{opacity:1}
 @media(prefers-reduced-motion:no-preference){
-  .pinwheel-orbit-pill{animation:pinwheel-orbit-spin 1.8s linear infinite}
+  .pinwheel-spinner .pinwheel-orbit-pill{animation:pinwheel-orbit-spin 1.8s linear infinite}
+  .card:hover .pinwheel-orbit-pill{animation:pinwheel-orbit-spin 1.8s linear infinite}
 }
 @keyframes pinwheel-orbit-spin{to{stroke-dashoffset:-364.4}}
 
@@ -523,6 +549,7 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
       <button data-view="completed" onclick="setAnalyticsView('completed')">Completed cycles</button>
       <button data-view="lifetime" onclick="setAnalyticsView('lifetime')">All blocks (lifetime)</button>
     </div>
+    <button class="dot-toggle" id="analyticsBreakdownToggle" title="Show timing & efficiency breakdown columns" aria-pressed="false" onclick="toggleAnalyticsBreakdown()"></button>
   </div>
   <div class="note-banner" id="analyticsNote"></div>
   <div id="analyticsWrap"></div>
@@ -1269,7 +1296,11 @@ function pinwheelHTML(b, size=36){
   const segs = pinwheelSlicesHTML(entries);
   return `<svg class="pinwheel" viewBox="0 0 100 100" width="${size}" height="${size}" role="img" aria-label="Batch status breakdown">
     <g style="transform:rotate(-90deg);transform-origin:50px 50px">${pinwheelTicksHTML()}</g>
-    <circle class="pinwheel-track" cx="50" cy="50" r="${PINWHEEL_R}"></circle>${segs}</svg>`;
+    <circle class="pinwheel-track" cx="50" cy="50" r="${PINWHEEL_R}"></circle>${segs}
+    <circle class="pinwheel-orbit-track" cx="50" cy="50" r="${PINWHEEL_ORBIT_R}"></circle>
+    <circle class="pinwheel-orbit-pill" cx="50" cy="50" r="${PINWHEEL_ORBIT_R}"
+      stroke-dasharray="${PINWHEEL_ORBIT_PILL_LEN} ${(PINWHEEL_ORBIT_C-PINWHEEL_ORBIT_PILL_LEN).toFixed(2)}"></circle>
+  </svg>`;
 }
 // Loading spinner (2026-08-25) - NOT the whole ring spinning (that was
 // the first version, felt flat) and NOT a needle pivoting from a center
@@ -2746,10 +2777,18 @@ window.addEventListener("afterprint",()=>{ document.body.classList.remove("print
 /* ================= ANALYTICS ================= */
 let analyticsView = localStorage.getItem("mn_analyticsview")||"completed"; // "completed" | "lifetime"
 function setAnalyticsView(v){ analyticsView=v; try{localStorage.setItem("mn_analyticsview",v);}catch(e){} renderAnalytics(); }
+let analyticsShowBreakdown = localStorage.getItem("mn_analytics_breakdown")==="1";
+function toggleAnalyticsBreakdown(){
+  analyticsShowBreakdown=!analyticsShowBreakdown;
+  try{localStorage.setItem("mn_analytics_breakdown",analyticsShowBreakdown?"1":"0");}catch(e){}
+  renderAnalytics();
+}
 
 function renderAnalytics(){
   const seg=$("analyticsViewSeg");
   if(seg) for(const btn of seg.querySelectorAll("button")) btn.classList.toggle("active", btn.dataset.view===analyticsView);
+  const toggle=$("analyticsBreakdownToggle");
+  if(toggle){ toggle.setAttribute("aria-pressed",analyticsShowBreakdown?"true":"false"); toggle.title=analyticsShowBreakdown?"Hide timing & efficiency breakdown columns":"Show timing & efficiency breakdown columns"; }
   const completed = analyticsView==="completed";
   $("analyticsNote").innerHTML = completed
     ? `<b>Completed cycles</b> — only counts blocks whose outcome is known (harvested out, contaminated, failed to colonise, or culled). Blocks still colonising or still fruiting are left out of cost/yield/efficiency until they resolve, so young batches don't drag down the numbers before they've had a chance to produce anything. Contaminated and failed blocks still count as sunk cost against yield — that's the honest number for pricing. Switch to "All blocks" for the full-history tally including active batches.`
@@ -2825,9 +2864,14 @@ function renderAnalytics(){
 
   if(!rows.length){ $("analyticsWrap").innerHTML=`<div class="empty">No batches yet — analytics will build themselves as you log.</div>`; return; }
   const anyMissing=rows.some(r=>r.weightMissing);
+  // Breakdown columns (timing + efficiency detail) are hidden behind the
+  // dot-grid toggle by default (2026-08-25, Adam's ask) - the headline
+  // counts, yield and $ columns stay visible always, this secondary
+  // per-batch diagnostic detail only renders when explicitly opened up.
+  const bd=analyticsShowBreakdown;
   $("analyticsWrap").innerHTML=`<div class="tablewrap"><table>
-    <tr><th></th><th>Species</th><th>Batches</th><th>Blocks inoc</th><th>→ Fruiting</th><th>Contam</th><th>No colonise</th>
-        <th>Avg days → fruit</th><th title="Real observed time from first move-to-fruiting to first harvest logged — learns as you log more harvests">Fruiting → harvest (actual)</th><th title="Manually logged 'ready to fruit' date, independent of when blocks are physically moved to the fruiting chamber">Avg days → ready</th><th>Avg days → done</th><th title="Dry substrate weight — water backed out of the finished block weight">Dry substrate</th><th>Total yield</th><th title="${completed?"Yield ÷ blocks that reached fruiting and have since finished their cycle":"Yield ÷ every block ever moved to fruiting, including ones still fruiting now"}">g / fruited block</th><th>Yield/kg sub</th><th title="Biological efficiency — fresh yield ÷ dry substrate weight">Efficiency</th>
+    <tr><th></th><th>Species</th><th>Batches</th><th>Blocks inoc</th><th>→ Fruiting</th><th>Contam</th><th>No colonise</th><th>Total yield</th>
+        ${bd?`<th>Avg days → fruit</th><th title="Real observed time from first move-to-fruiting to first harvest logged — learns as you log more harvests">Fruiting → harvest (actual)</th><th title="Manually logged 'ready to fruit' date, independent of when blocks are physically moved to the fruiting chamber">Avg days → ready</th><th>Avg days → done</th><th title="Dry substrate weight — water backed out of the finished block weight">Dry substrate</th><th title="${completed?"Yield ÷ blocks that reached fruiting and have since finished their cycle":"Yield ÷ every block ever moved to fruiting, including ones still fruiting now"}">g / fruited block</th><th>Yield/kg sub</th><th title="Biological efficiency — fresh yield ÷ dry substrate weight">Efficiency</th>`:""}
         <th>Cost / kg</th><th>Wholesale $/kg</th><th>Wholesale margin</th><th>Retail $/kg</th><th>Retail margin</th></tr>
     ${rows.map(r=>{const spEsc=esc(r.sp).replace(/'/g,"\\'");return `<tr ondragover="speciesDragOver(event)" ondrop="speciesDrop(event,'${spEsc}')">
       <td style="text-align:center"><span class="drag-handle" draggable="true" title="Drag to reorder" ondragstart="speciesDragStart(event,'${spEsc}')" ondragend="speciesDragEnd(event)">&#9776;</span></td>
@@ -2835,14 +2879,15 @@ function renderAnalytics(){
       <td>${r.toFruit} (${r.pctFruit}%)</td>
       <td>${r.contam?`${r.contam} (${r.pctContam}%)`:"0"}</td>
       <td>${r.failed?`${r.failed} (${r.pctFailed}%)`:"0"}</td>
-      <td>${r.avgFruit??"—"}</td>
+      <td>${fmtWeight(r.yld)}</td>
+      ${bd?`<td>${r.avgFruit??"—"}</td>
       <td>${r.avgHarvestGap!=null?r.avgHarvestGap+` days (n=${r.harvestGapN})`:"—"}${r.harvestSuggestion?`<div style="margin-top:4px"><button class="btn btn-sm btn-primary" title="Chef Orders is currently set to ${r.harvestSuggestion.configuredLo}–${r.harvestSuggestion.configuredHi} days" onclick="applyHarvestSuggestion('${spEsc}',${r.harvestSuggestion.lo},${r.harvestSuggestion.hi})">Update to ${r.harvestSuggestion.lo}–${r.harvestSuggestion.hi}d?</button></div>`:""}</td>
       <td>${r.avgReady!=null?r.avgReady+` (n=${r.readyCount})`:"—"}</td>
       <td>${r.avgComplete??"—"}</td>
       <td>${r.subKg>0?(r.subKg%1?r.subKg.toFixed(1):r.subKg)+" kg":"—"}</td>
-      <td>${fmtWeight(r.yld)}</td><td>${r.gPerBlock??"—"}</td>
+      <td>${r.gPerBlock??"—"}</td>
       <td>${r.yPerKgSub!=null?r.yPerKgSub+" g":"—"}</td>
-      <td>${r.bePct!=null?r.bePct+"%":"—"}</td>
+      <td>${r.bePct!=null?r.bePct+"%":"—"}</td>`:""}
       <td>${r.costKg!=null?money(r.costKg):"—"}</td>
       <td>${r.sale!=null?money(r.sale):"—"}</td>
       <td class="${r.margin==null?"":r.margin<0?"neg":"pos"}">${r.margin!=null?money(r.margin):"—"}</td>
