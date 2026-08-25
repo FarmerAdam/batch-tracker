@@ -144,7 +144,31 @@ main{max-width:1440px;margin:0 auto;padding:16px}
 .dot-toggle{width:38px;height:38px;flex:none;border:1px solid var(--line);border-radius:8px;background-color:var(--card);box-shadow:var(--shadow);background-image:radial-gradient(circle,var(--muted) 1.3px,transparent 1.8px);background-size:7px 7px;background-position:center}
 .dot-toggle:hover{border-color:var(--rust-dim)}
 .dot-toggle[aria-pressed="true"]{border-color:var(--rust);background-image:radial-gradient(circle,var(--rust) 1.3px,transparent 1.8px)}
-.search{max-width:340px}
+/* Inline sibling of .dot-toggle (2026-08-25) - same dot-grid affordance,
+   sized to sit next to a line of body text rather than in a toolbar, for
+   collapsing/expanding a single explanatory note-banner. Note-banners
+   with this treatment start collapsed (state persisted per-banner via
+   infoBannerHTML()'s localStorage set) so background "how this works"
+   text doesn't compete with the actual data by default. */
+.info-banner{display:flex;align-items:flex-start;gap:8px;margin-bottom:14px}
+.info-banner .note-banner{margin-bottom:0;flex:1}
+.dot-toggle-sm{width:26px;height:26px;flex:none;margin-top:1px;border:1px solid var(--line);border-radius:6px;background-color:var(--card);background-image:radial-gradient(circle,var(--muted) 1.1px,transparent 1.6px);background-size:6px 6px;background-position:center}
+.dot-toggle-sm:hover{border-color:var(--rust-dim)}
+.dot-toggle-sm[aria-pressed="true"]{border-color:var(--rust);background-image:radial-gradient(circle,var(--rust) 1.1px,transparent 1.6px)}
+/* Small hover-popover trigger (2026-08-25) for a single fact too short to
+   deserve a whole banner - e.g. a table header's meaning. CSS-only via
+   content:attr(data-tip), no JS, replacing the native browser title
+   tooltip with one that actually matches the app instead of an unstyled
+   system box. */
+.info-dot{display:inline-flex;width:13px;height:13px;flex:none;margin-left:4px;position:relative;cursor:help;vertical-align:middle;border-radius:50%;background-image:radial-gradient(circle,var(--muted) 1.1px,transparent 1.5px);background-size:5px 5px;background-position:center}
+/* Opens downward, not upward (2026-08-25 fix, caught by screenshot) -
+   every current use sits in a table header row inside .tablewrap, whose
+   overflow-x:auto implicitly clips overflow-y too, so an upward popover
+   was invisible, clipped by the scroll container before it ever left
+   the header row. Below always has table body rows to render over. */
+.info-dot::after{content:attr(data-tip);position:absolute;top:calc(100% + 7px);left:50%;transform:translateX(-50%);width:max-content;max-width:220px;background:var(--ink);color:var(--bg);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:11.5px;font-weight:500;text-transform:none;letter-spacing:normal;line-height:1.4;padding:7px 10px;border-radius:6px;border-top:2px solid var(--rust);opacity:0;visibility:hidden;pointer-events:none;transition:opacity .12s;z-index:80;box-shadow:var(--shadow);text-align:left}
+.info-dot:hover::after,.info-dot:focus-visible::after{opacity:1;visibility:visible}
+th .info-dot{margin-left:5px}
 
 /* pipeline - reframed 2026-08-25 from a vertical Trello-style kanban
    into a horizontal production-line/assembly-rail: stations run left to
@@ -530,7 +554,7 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
       <div></div>
     </div>
     <label>Blocks *</label>
-    <div class="note-banner" style="margin-bottom:8px">Add a line per block size. Mixed sizes are fine — e.g. 40 × 4.5kg wall blocks plus 8 × 2.5kg home-kit blocks in the same inoculation.</div>
+    <div id="staticInfo_blockLines"></div>
     <div id="blockLines"></div>
     <button class="btn btn-sm" style="margin-top:4px" onclick="addBlockLine()">＋ Add block size</button>
     <div id="blockTotal" style="margin-top:8px;font-size:14px;color:var(--muted)"></div>
@@ -551,14 +575,14 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
     </div>
     <button class="dot-toggle" id="analyticsBreakdownToggle" title="Show timing & efficiency breakdown columns" aria-pressed="false" onclick="toggleAnalyticsBreakdown()"></button>
   </div>
-  <div class="note-banner" id="analyticsNote"></div>
+  <div id="analyticsNote"></div>
   <div id="analyticsWrap"></div>
 </section>
 
 <!-- COSTS -->
 <section class="view" id="view-costs">
   <div class="toolbar"><h2 style="font-size:22px">Cost per block & pricing</h2></div>
-  <div class="note-banner">Enter what one block costs you, per species. These feed the Analytics cost/kg and margin columns. Edit any time — e.g. when substrate or power costs change.</div>
+  <div id="staticInfo_costsTop"></div>
   <div id="costsWrap"></div>
 </section>
 
@@ -978,6 +1002,33 @@ const fmtDate = iso => { if(!iso) return "—"; const d=new Date(iso+"T00:00:00"
 const daysBetween = (a,b)=> Math.round((new Date(b)-new Date(a))/86400000);
 const fmtWeight = g => g>=1000 ? (g/1000).toFixed(g>=10000?1:2)+" kg" : Math.round(g)+" g";
 const money = n => "$"+(Math.round(n*100)/100).toFixed(2);
+
+/* Info-dot / collapsible-note-banner helpers (2026-08-25, Adam's ask to
+   tuck "nice to know but not essential" explanatory text behind the same
+   dot-grid affordance app-wide, rather than as permanently-visible
+   banners/native tooltips). Two sizes for two jobs:
+   - infoDot(tip): a single fact too short for a whole banner (a table
+     header's meaning) - CSS-only hover popover, no click/state needed.
+   - infoBannerHTML(id, html): a whole explanatory paragraph, collapsed
+     by default, click the dot to reveal - state persists per-banner id
+     across reloads via localStorage, same pattern as analyticsShowBreakdown. */
+const openInfoBanners = new Set(JSON.parse(localStorage.getItem("mn_info_banners")||"[]"));
+function infoDot(tip){ return `<span class="info-dot" tabindex="0" data-tip="${esc(tip)}"></span>`; }
+function toggleInfoBanner(id){
+  if(openInfoBanners.has(id)) openInfoBanners.delete(id); else openInfoBanners.add(id);
+  try{ localStorage.setItem("mn_info_banners", JSON.stringify([...openInfoBanners])); }catch(e){}
+  const btn=document.querySelector(`.dot-toggle-sm[data-banner="${id}"]`);
+  const body=document.getElementById(`ib_${id}`);
+  if(btn) btn.setAttribute("aria-pressed", openInfoBanners.has(id)?"true":"false");
+  if(body) body.style.display = openInfoBanners.has(id) ? "" : "none";
+}
+function infoBannerHTML(id, html, style){
+  const open = openInfoBanners.has(id);
+  return `<div class="info-banner"${style?` style="${style}"`:""}>
+    <button type="button" class="dot-toggle-sm" data-banner="${id}" aria-pressed="${open}" title="${open?"Hide":"Show"} info" onclick="toggleInfoBanner('${id}')"></button>
+    <div class="note-banner" id="ib_${id}" style="${open?"":"display:none"}">${html}</div>
+  </div>`;
+}
 
 function setSync(state,text){
   const el=$("sync"); el.className="sync "+state;
@@ -2801,9 +2852,9 @@ function renderAnalytics(){
   const toggle=$("analyticsBreakdownToggle");
   if(toggle){ toggle.setAttribute("aria-pressed",analyticsShowBreakdown?"true":"false"); toggle.title=analyticsShowBreakdown?"Hide timing & efficiency breakdown columns":"Show timing & efficiency breakdown columns"; }
   const completed = analyticsView==="completed";
-  $("analyticsNote").innerHTML = completed
+  $("analyticsNote").innerHTML = infoBannerHTML("analyticsNote", completed
     ? `<b>Completed cycles</b> — only counts blocks whose outcome is known (harvested out, contaminated, failed to colonise, or culled). Blocks still colonising or still fruiting are left out of cost/yield/efficiency until they resolve, so young batches don't drag down the numbers before they've had a chance to produce anything. Contaminated and failed blocks still count as sunk cost against yield — that's the honest number for pricing. Switch to "All blocks" for the full-history tally including active batches.`
-    : `<b>All blocks (lifetime)</b> — every inoculated block ever, including ones still colonising or fruiting right now. Cost/kg counts every block — including contaminated and failed ones — as cost against the yield that actually came off. Useful for a full-history view, but active batches that haven't yielded yet will pull efficiency and cost/kg down until they finish. Switch to "Completed cycles" for a view that isn't skewed by in-progress blocks.`;
+    : `<b>All blocks (lifetime)</b> — every inoculated block ever, including ones still colonising or fruiting right now. Cost/kg counts every block — including contaminated and failed ones — as cost against the yield that actually came off. Useful for a full-history view, but active batches that haven't yielded yet will pull efficiency and cost/kg down until they finish. Switch to "Completed cycles" for a view that isn't skewed by in-progress blocks.`);
 
   const bySpecies={};
   for(const b of batches){
@@ -2882,7 +2933,7 @@ function renderAnalytics(){
   const bd=analyticsShowBreakdown;
   $("analyticsWrap").innerHTML=`<div class="tablewrap"><table>
     <tr><th></th><th>Species</th><th>Batches</th><th>Blocks inoc</th><th>→ Fruiting</th><th>Contam</th><th>No colonise</th><th>Total yield</th>
-        ${bd?`<th>Avg days → fruit</th><th title="Real observed time from first move-to-fruiting to first harvest logged — learns as you log more harvests">Fruiting → harvest (actual)</th><th title="Manually logged 'ready to fruit' date, independent of when blocks are physically moved to the fruiting chamber">Avg days → ready</th><th>Avg days → done</th><th title="Dry substrate weight — water backed out of the finished block weight">Dry substrate</th><th title="${completed?"Yield ÷ blocks that reached fruiting and have since finished their cycle":"Yield ÷ every block ever moved to fruiting, including ones still fruiting now"}">g / fruited block</th><th>Yield/kg sub</th><th title="Biological efficiency — fresh yield ÷ dry substrate weight">Efficiency</th>`:""}
+        ${bd?`<th>Avg days → fruit</th><th>Fruiting → harvest (actual)${infoDot("Real observed time from first move-to-fruiting to first harvest logged — learns as you log more harvests")}</th><th>Avg days → ready${infoDot("Manually logged 'ready to fruit' date, independent of when blocks are physically moved to the fruiting chamber")}</th><th>Avg days → done</th><th>Dry substrate${infoDot("Dry substrate weight — water backed out of the finished block weight")}</th><th>g / fruited block${infoDot(completed?"Yield ÷ blocks that reached fruiting and have since finished their cycle":"Yield ÷ every block ever moved to fruiting, including ones still fruiting now")}</th><th>Yield/kg sub</th><th>Efficiency${infoDot("Biological efficiency — fresh yield ÷ dry substrate weight")}</th>`:""}
         <th>Cost / kg</th><th>Wholesale $/kg</th><th>Wholesale margin</th><th>Retail $/kg</th><th>Retail margin</th></tr>
     ${rows.map(r=>{const spEsc=esc(r.sp).replace(/'/g,"\\'");return `<tr ondragover="speciesDragOver(event)" ondrop="speciesDrop(event,'${spEsc}')">
       <td style="text-align:center"><span class="drag-handle" draggable="true" title="Drag to reorder" ondragstart="speciesDragStart(event,'${spEsc}')" ondragend="speciesDragEnd(event)">&#9776;</span></td>
@@ -2905,8 +2956,8 @@ function renderAnalytics(){
       <td>${r.retail!=null?money(r.retail):"—"}</td>
       <td class="${r.retailMargin==null?"":r.retailMargin<0?"neg":"pos"}">${r.retailMargin!=null?money(r.retailMargin):"—"}</td>
     </tr>`;}).join("")}
-  </table></div>${anyMissing?`<div class="note-banner" style="margin-top:12px">* Some batches don't have block weights recorded, so their substrate cost isn't counted — those species' cost/kg and efficiency are understated until you edit the batch and add block sizes.</div>`:""}
-  <div class="note-banner" style="margin-top:12px">"Fruiting → harvest (actual)" learns from your own data — once at least 3 harvests are logged for a species and the real timing meaningfully differs from what's configured in Chef Orders, you'll see an "Update to Xd?" button here. Nothing changes automatically; it's a suggestion you approve.</div>`;
+  </table></div>${anyMissing?infoBannerHTML("analyticsWeightMissing", `* Some batches don't have block weights recorded, so their substrate cost isn't counted — those species' cost/kg and efficiency are understated until you edit the batch and add block sizes.`, "margin-top:12px"):""}
+  ${infoBannerHTML("analyticsHarvestLearning", `"Fruiting → harvest (actual)" learns from your own data — once at least 3 harvests are logged for a species and the real timing meaningfully differs from what's configured in Chef Orders, you'll see an "Update to Xd?" button here. Nothing changes automatically; it's a suggestion you approve.`, "margin-top:12px")}`;
 }
 
 /* ================= COSTS ================= */
@@ -2926,7 +2977,7 @@ function blockWaterPanelHTML(){
     <button class="btn btn-sm" onclick="addBlockWaterRow()">+ Add block size</button>
     <button class="btn btn-sm btn-primary" onclick="saveBlockWater()">Save block sizes</button>
   </div>
-  <div class="note-banner" style="margin-top:12px">Tells the app how much water is added to each finished block size, so substrate cost and efficiency are calculated on the <b>dry</b> weight, not the hydrated weight — well water costs next to nothing so it shouldn't inflate substrate cost. Add a row whenever a new block size comes into use; sizes here also drive the per-block cost columns in the table above.</div>`;
+  ${infoBannerHTML("blockWater", `Tells the app how much water is added to each finished block size, so substrate cost and efficiency are calculated on the <b>dry</b> weight, not the hydrated weight — well water costs next to nothing so it shouldn't inflate substrate cost. Add a row whenever a new block size comes into use; sizes here also drive the per-block cost columns in the table above.`, "margin-top:12px")}`;
 }
 function renderCosts(){
   const species=orderedCostSpecies();
@@ -2953,7 +3004,7 @@ function renderCosts(){
         <td style="display:flex;gap:6px"><button class="btn btn-sm btn-primary" onclick="saveCost('${spEsc}','${sid}')">Save</button>${c.id?`<button class="btn btn-sm btn-danger" title="Delete cost entry" onclick="deleteCost('${spEsc}')">&times;</button>`:""}</td>
       </tr>`;}).join("")}
   </table></div>
-  <div class="note-banner" style="margin-top:12px">Substrate is entered <b>per kg dry</b> so it scales with block size automatically. Spawn, bag and other (power, labour) are <b>per block</b>. The block columns above show what each configured finished block size costs you — substrate is charged on the <b>dry weight</b> only, with water backed out since well water costs next to nothing. <b>Retail $/kg</b> is a target price for market sales (not yet tied to actual transactions) so you can sanity-check retail markup against wholesale. Drag the &#9776; handle to reorder species — e.g. group cheaper ones together. The order is shared with the Analytics tab.</div>
+  ${infoBannerHTML("costsBottom", `Substrate is entered <b>per kg dry</b> so it scales with block size automatically. Spawn, bag and other (power, labour) are <b>per block</b>. The block columns above show what each configured finished block size costs you — substrate is charged on the <b>dry weight</b> only, with water backed out since well water costs next to nothing. <b>Retail $/kg</b> is a target price for market sales (not yet tied to actual transactions) so you can sanity-check retail markup against wholesale. Drag the &#9776; handle to reorder species — e.g. group cheaper ones together. The order is shared with the Analytics tab.`, "margin-top:12px")}
   ${blockWaterPanelHTML()}`;
 }
 async function saveCost(sp,sid){
@@ -3083,6 +3134,17 @@ if(window.ResizeObserver){
 updateStickyOffsets();
 
 /* ================= BOOT ================= */
+// The two note-banners that live in static HTML rather than a render
+// function's own template (batch form, Costs top banner) - populated
+// once here since they don't depend on data, unlike every other
+// info-banner which renders fresh each time its own view function runs.
+function renderStaticInfoBanners(){
+  const bl=$("staticInfo_blockLines");
+  if(bl) bl.outerHTML = infoBannerHTML("blockLines", "Add a line per block size. Mixed sizes are fine — e.g. 40 × 4.5kg wall blocks plus 8 × 2.5kg home-kit blocks in the same inoculation.", "margin-bottom:8px");
+  const ct=$("staticInfo_costsTop");
+  if(ct) ct.outerHTML = infoBannerHTML("costsTop", "Enter what one block costs you, per species. These feed the Analytics cost/kg and margin columns. Edit any time — e.g. when substrate or power costs change.");
+}
+renderStaticInfoBanners();
 function renderAll(){
   renderPipeline(); renderAnalytics(); renderCosts(); renderArchive();
   if($("view-batch").classList.contains("active")) renderBatch();
