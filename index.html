@@ -136,14 +136,17 @@ main{max-width:1440px;margin:0 auto;padding:16px}
 .btn-sm{padding:7px 11px;font-size:13px}
 .toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:16px}
 .toolbar .spacer{flex:1}
-/* Literal dot-grid button (2026-08-25, Analytics follow-up) - the
-   dot-grid motif used as decorative corner texture elsewhere, but here
-   as an actual clickable affordance, matching Farm Panel's own
-   dot-grid-as-icon convention. Reveals/hides the secondary timing +
-   efficiency columns so the table opens on headline numbers only. */
-.dot-toggle{width:38px;height:38px;flex:none;border:1px solid var(--line);border-radius:8px;background-color:var(--card);box-shadow:var(--shadow);background-image:radial-gradient(circle,var(--muted) 1.3px,transparent 1.8px);background-size:7px 7px;background-position:center}
-.dot-toggle:hover{border-color:var(--rust-dim)}
-.dot-toggle[aria-pressed="true"]{border-color:var(--rust);background-image:radial-gradient(circle,var(--rust) 1.3px,transparent 1.8px)}
+/* Literal dot-grid button (2026-08-25, Analytics follow-up; de-tiled
+   2026-08-25 same day per Adam's follow-up - no card/border/shadow, just
+   the dots themselves sitting directly on the page) - the dot-grid motif
+   used as decorative corner texture elsewhere, but here as an actual
+   clickable affordance, matching Farm Panel's own dot-grid-as-icon
+   convention. Reveals/hides the secondary timing + efficiency columns so
+   the table opens on headline numbers only. Color alone (muted -> rust)
+   carries hover/active state now that there's no border to recolor. */
+.dot-toggle{width:38px;height:38px;flex:none;background-image:radial-gradient(circle,var(--muted) 1.3px,transparent 1.8px);background-size:7px 7px;background-position:center;transition:opacity .15s}
+.dot-toggle:hover{background-image:radial-gradient(circle,var(--rust-dim) 1.3px,transparent 1.8px)}
+.dot-toggle[aria-pressed="true"]{background-image:radial-gradient(circle,var(--rust) 1.3px,transparent 1.8px)}
 /* Inline sibling of .dot-toggle (2026-08-25) - same dot-grid affordance,
    sized to sit next to a line of body text rather than in a toolbar, for
    collapsing/expanding a single explanatory note-banner. Note-banners
@@ -152,9 +155,9 @@ main{max-width:1440px;margin:0 auto;padding:16px}
    text doesn't compete with the actual data by default. */
 .info-banner{display:flex;align-items:flex-start;gap:8px;margin-bottom:14px}
 .info-banner .note-banner{margin-bottom:0;flex:1}
-.dot-toggle-sm{width:26px;height:26px;flex:none;margin-top:1px;border:1px solid var(--line);border-radius:6px;background-color:var(--card);background-image:radial-gradient(circle,var(--muted) 1.1px,transparent 1.6px);background-size:6px 6px;background-position:center}
-.dot-toggle-sm:hover{border-color:var(--rust-dim)}
-.dot-toggle-sm[aria-pressed="true"]{border-color:var(--rust);background-image:radial-gradient(circle,var(--rust) 1.1px,transparent 1.6px)}
+.dot-toggle-sm{width:26px;height:26px;flex:none;margin-top:1px;background-image:radial-gradient(circle,var(--muted) 1.1px,transparent 1.6px);background-size:6px 6px;background-position:center;transition:opacity .15s}
+.dot-toggle-sm:hover{background-image:radial-gradient(circle,var(--rust-dim) 1.1px,transparent 1.6px)}
+.dot-toggle-sm[aria-pressed="true"]{background-image:radial-gradient(circle,var(--rust) 1.1px,transparent 1.6px)}
 /* Small hover-popover trigger (2026-08-25) for a single fact too short to
    deserve a whole banner - e.g. a table header's meaning. CSS-only via
    content:attr(data-tip), no JS, replacing the native browser title
