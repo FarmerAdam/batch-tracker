@@ -356,7 +356,7 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
    hazard-stripe language of industrial floor marking rather than a
    pegboard hole. Was the one texture opportunity flagged when Phase 1
    shipped. */
-.slot.empty{color:var(--slot-empty-ink);font-family:"IBM Plex Mono",monospace;background-image:repeating-linear-gradient(45deg,var(--slot-empty-ink) 0,var(--slot-empty-ink) 1px,transparent 1px,transparent 6px)}
+.slot.empty{color:var(--slot-empty-ink);font-family:"IBM Plex Mono",monospace;background-image:repeating-linear-gradient(-45deg,var(--slot-empty-ink) 0,var(--slot-empty-ink) 1px,transparent 1px,transparent 6px)}
 .slot.full{border-style:solid;border-color:transparent}
 .slot .s-no{font-weight:700;font-size:11px}
 .slot .s-sp{font-size:8px;opacity:.95;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -1291,14 +1291,25 @@ function pinwheelTicksHTML(count=48, r1=47, r2=51, majorEvery=6){
   }
   return out;
 }
+// Card orbit-pill takes its color from the same station a batch is
+// currently bucketed into on the Pipeline (2026-08-25, Adam's ask) -
+// "ready to fruit" -> cyan, "fruiting" -> safety orange, etc. Off-ramp
+// has no --st-offramp token of its own (never did - the station itself
+// borrows --st-contaminated as its accent, so the pill matches that
+// same precedent rather than inventing a new color). The spinner
+// variant below intentionally does NOT do this - Adam's earlier call
+// was for it to stay a neutral dark grey so it doesn't compete with
+// the ticked ring's own colors underneath.
+const PINWHEEL_COLUMN_STATE = {fruiting:"fruiting", ready:"ready", incubating:"incubating", complete:"complete", offramp:"contaminated"};
 function pinwheelHTML(b, size=36){
   const entries = Object.entries(pinwheelStates(b));
   const segs = pinwheelSlicesHTML(entries);
+  const pillState = PINWHEEL_COLUMN_STATE[batchColumn(b)] || "incubating";
   return `<svg class="pinwheel" viewBox="0 0 100 100" width="${size}" height="${size}" role="img" aria-label="Batch status breakdown">
     <g style="transform:rotate(-90deg);transform-origin:50px 50px">${pinwheelTicksHTML()}</g>
     <circle class="pinwheel-track" cx="50" cy="50" r="${PINWHEEL_R}"></circle>${segs}
     <circle class="pinwheel-orbit-track" cx="50" cy="50" r="${PINWHEEL_ORBIT_R}"></circle>
-    <circle class="pinwheel-orbit-pill" cx="50" cy="50" r="${PINWHEEL_ORBIT_R}"
+    <circle class="pinwheel-orbit-pill" cx="50" cy="50" r="${PINWHEEL_ORBIT_R}" style="stroke:var(--st-${pillState})"
       stroke-dasharray="${PINWHEEL_ORBIT_PILL_LEN} ${(PINWHEEL_ORBIT_C-PINWHEEL_ORBIT_PILL_LEN).toFixed(2)}"></circle>
   </svg>`;
 }
