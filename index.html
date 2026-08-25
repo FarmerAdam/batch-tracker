@@ -6,23 +6,49 @@
 <title>Markwood Batch Tracker</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800&family=IBM+Plex+Mono:wght@500&family=Oswald:wght@500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <style>
 :root{
-  --bg:#F6F4EF; --card:#FFFFFF; --ink:#2A241B; --muted:#7A7264; --line:#E4DFD3;
+  --bg:#E7E3DC; --card:#FFFFFF; --ink:#2A241B; --muted:#7A7264; --line:#E4DFD3;
   --accent:#3E5C42; --accent-ink:#FFFFFF; --danger:#B5402E;
   --st-incubating:#C9C2B4; --st-ready:#8C6FB0; --st-fruiting:#4D8FD1; --st-complete:#5E9E54;
   --st-contaminated:#C2503C; --st-failed:#D98E3A; --st-culled:#6E665A;
   --slot-empty-bg:#FBFAF6; --slot-empty-ink:#C4BCAC; --slot-place-bg:#EFF3EF;
   --radius:10px; --shadow:0 1px 3px rgba(42,36,27,.08);
+  /* Rebrand foundation (2026-08-25) - "two-tone duotone" retro palette,
+     a sibling identity to Farm Panel's rust/tan/near-black system without
+     being a literal reskin of it. --rust/--rust-dim are the literal same
+     hex values Farm Panel uses, deliberately, as the one shared thread
+     between the two apps' otherwise-distinct palettes. --surface-2 is a
+     second, visibly cooler-toned surface than --card/--bg (used for
+     chrome that wants the duotone contrast - nav, rail/station chrome) -
+     that warm/cool pairing IS the duotone, most visible in dark mode
+     where the whole aesthetic actually lives. --card itself stays the
+     primary panel/card surface exactly as it already is, just retuned
+     below. Nothing existing renamed or removed - --accent stays exactly
+     what it is today (a user-selectable override applied as an inline
+     style, see applyAppearance()), not repurposed as "the new rust". */
+  --surface-2:#DCD7CE; --ink-dim:#6E685D;
+  --rust:#C9593D; --rust-dim:#642211; --rust-rgb:201,89,61;
+  --display:'Oswald','Arial Narrow','Helvetica Neue Condensed',sans-serif;
 }
 [data-theme="dark"]{
-  --bg:#1B1916; --card:#262320; --ink:#EDE8DF; --muted:#A39A8B; --line:#3A352F;
+  --bg:#17150F; --card:#221F1A; --ink:#EDE8DF; --muted:#A39A8B; --line:#3A352F;
   --accent-ink:#FFFFFF; --danger:#E07A66;
   --st-incubating:#7C766A; --shadow:0 1px 3px rgba(0,0,0,.4);
   --slot-empty-bg:#211F1B; --slot-empty-ink:#6B6458; --slot-place-bg:#2A2A22;
+  /* New tokens only below - --bg/--card/--ink/etc above are untouched
+     here on purpose (step 1 of the rebrand is additive-only, see the
+     :root comment above) - the actual --bg/--card repoint to the
+     rebrand tones happens deliberately in the "wire global chrome"
+     pass, not silently bundled into just adding these. --surface-2
+     leans cooler/slate against --card's warmer tone - that contrast is
+     the duotone, most visible here since dark is where the aesthetic
+     actually lives. */
+  --surface-2:#201E22; --ink-dim:#A39A8B;
+  --rust:#C9593D; --rust-dim:#8A3A26;
 }
 [data-theme="dark"] input,[data-theme="dark"] select,[data-theme="dark"] textarea{background:#1F1D1A;border-color:#3A352F}
 [data-theme="dark"] .note-banner{background:#2B2820;border-color:#423D2C;color:#C9BE9C}
@@ -36,7 +62,7 @@
 *{box-sizing:border-box;margin:0;padding:0}
 html{-webkit-text-size-adjust:100%}
 body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink);font-size:15px;line-height:1.45}
-h1,h2,h3{font-family:"Montserrat",sans-serif;font-weight:700}
+h1,h2,h3{font-family:var(--display);font-weight:700;text-transform:uppercase;letter-spacing:.02em}
 .mono{font-family:"IBM Plex Mono",monospace;font-weight:500}
 button{font:inherit;cursor:pointer;border:none;background:none;color:inherit}
 input,select,textarea{font:inherit;color:inherit;width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:#fff}
@@ -52,6 +78,7 @@ header{background:var(--card);border-bottom:1px solid var(--line);position:stick
 .hdr-logo img{width:26px;height:26px;object-fit:contain;border-radius:5px}
 .hdr-top h1{font-size:20px;letter-spacing:.2px;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .sync{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);flex:none}
+.sync .dot-wrap{display:inline-flex;width:12px;height:12px;align-items:center;justify-content:center}
 .sync .dot{width:8px;height:8px;border-radius:50%;background:#A9A294}
 .sync.ok .dot{background:var(--st-complete)} .sync.bad .dot{background:var(--st-contaminated)}
 .hdr-gear{flex:none;font-size:18px;color:var(--muted);padding:4px 6px;line-height:1;border-radius:6px}
@@ -81,14 +108,42 @@ main{max-width:1440px;margin:0 auto;padding:16px}
 .toolbar .spacer{flex:1}
 .search{max-width:340px}
 
-/* pipeline */
-.pipeline{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;align-items:start}
-.col{background:rgba(255,255,255,.45);border:1.5px dashed var(--line);border-radius:var(--radius);padding:10px;min-height:120px}
-.col-head{display:flex;align-items:baseline;justify-content:space-between;padding:4px 6px 10px}
-.col-head h2{font-size:16px;text-transform:uppercase;letter-spacing:.6px}
-.col-head .count{font-size:13px;color:var(--muted)}
+/* pipeline - reframed 2026-08-25 from a vertical Trello-style kanban
+   into a horizontal production-line/assembly-rail: stations run left to
+   right instead of stacking, leaning into the retro-industrial "line"
+   imagery rather than a generic SaaS board. Horizontal-scroll-on-mobile
+   is already an established pattern in this file (nav, #roomModes), so
+   this isn't a new interaction to learn. .rail is now dedicated to the
+   pipeline specifically - renderArchive() used to piggyback the old
+   .pipeline class purely as a generic responsive card grid (see
+   .card-grid below), which would have broken once .pipeline became this
+   bespoke rail layout, so the two were deliberately decoupled into their
+   own classes rather than sharing one. */
+.rail{display:flex;gap:14px;align-items:start;overflow-x:auto;padding-bottom:6px;scroll-snap-type:x proximity}
+/* --surface-2, not --card, on purpose - the whole point of a "two-tone
+   duotone" is that station chrome and the cards sitting inside it read
+   as two visibly different surfaces, not the same white/dark tone twice
+   over. */
+.station{background:var(--surface-2);border:1px solid var(--line);border-radius:var(--radius);padding:10px;min-height:120px;flex:0 0 260px;scroll-snap-align:start}
+/* Off-ramp (new 2026-08-25, Adam's ask) surfaces contaminated/failed/
+   culled batches as their own station instead of only ever showing up
+   as coloured squares inside a card filed under Complete - previously a
+   100%-lost batch was invisible at a glance. Deliberately kept dashed,
+   unlike every other (solid-bordered) station - a real, motivated use
+   of "dashed = not part of the main flow" rather than an arbitrary
+   style choice, matching the shared-with-Farm-Panel convention that
+   dashed borders mark secondary/de-emphasised chrome. */
+.station.station-offramp{border-style:dashed}
+.station-head{display:flex;align-items:baseline;justify-content:space-between;padding:4px 6px 10px}
+.station-head h2{font-size:16px;letter-spacing:.6px}
+.station-head .count{font-size:13px;color:var(--muted)}
+/* .card-grid: Archive's own plain responsive grid, split out of the old
+   shared .pipeline class (see .rail comment above) - same card content
+   (cardHTML()), simple wrapping grid instead of a horizontal rail, since
+   Archive isn't a live workflow to scroll through station by station. */
+.card-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px;align-items:start}
 .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:14px;margin-bottom:10px;cursor:pointer}
-.card:hover{border-color:#C8C1B0}
+.card:hover{border-color:var(--rust-dim)}
 .card .co{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
 .card h3{font-size:16px;margin:2px 0 1px}
 .card .species{font-size:13px;color:var(--muted);margin-bottom:8px}
@@ -96,16 +151,31 @@ main{max-width:1440px;margin:0 auto;padding:16px}
 .card .stats b{font-weight:600}
 .bno{color:var(--muted);font-size:13px}
 
-/* block grid */
+/* block grid - kept exactly as a concept (Adam's explicit ask), only the
+   corner radius tightened slightly for a sharper "industrial tile" read
+   than the original soft-rounded squares. */
 .bgrid{display:flex;flex-wrap:wrap;gap:3px}
-.bgrid .sq{width:13px;height:13px;border-radius:3px}
-.bgrid.big .sq{width:22px;height:22px;border-radius:5px}
+.bgrid .sq{width:13px;height:13px;border-radius:2px}
+.bgrid.big .sq{width:22px;height:22px;border-radius:4px}
 .legend{display:flex;flex-wrap:wrap;gap:12px;font-size:13px;color:var(--muted);margin-top:10px}
 .legend span{display:inline-flex;align-items:center;gap:5px}
-.legend .sq{width:11px;height:11px;border-radius:3px;display:inline-block}
+.legend .sq{width:11px;height:11px;border-radius:2px;display:inline-block}
 .sq.incubating{background:var(--st-incubating)} .sq.fruiting{background:var(--st-fruiting)} .sq.ready{background:var(--st-ready)}
 .sq.complete{background:var(--st-complete)} .sq.contaminated{background:var(--st-contaminated)}
 .sq.failed{background:var(--st-failed)} .sq.culled{background:var(--st-culled)}
+
+/* card header + pinwheel (2026-08-25) - see pinwheelHTML()'s own JS
+   comment for the full rationale. Sits beside the title/species block,
+   alongside the block-grid below it, not replacing it. */
+.card-head{display:flex;gap:10px;align-items:flex-start;margin-bottom:2px}
+.card-head-text{min-width:0;flex:1}
+.pinwheel{flex:none;transform:rotate(-90deg)}
+.pinwheel-track{fill:none;stroke:var(--line);stroke-width:14}
+.pinwheel-seg{fill:none;stroke-width:14;stroke-linecap:butt}
+@media(prefers-reduced-motion:no-preference){
+  .pinwheel-spinner{animation:pinwheel-spin 1.1s linear infinite}
+}
+@keyframes pinwheel-spin{to{transform:rotate(270deg)}}
 
 /* batch detail */
 .detail-head{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:14px}
@@ -136,7 +206,10 @@ main{max-width:1440px;margin:0 auto;padding:16px}
 .drag-handle:active{cursor:grabbing}
 tr.dragging{opacity:.4}
 .card.dragging{opacity:.4}
-.col.drop-ok{background:rgba(140,111,176,.10);border-style:solid}
+/* Was a hardcoded rgba equal to the old --st-ready purple - re-themed to
+   the rust accent so drop feedback actually follows the rebrand instead
+   of silently staying purple-tinted forever. */
+.station.drop-ok{background:rgba(var(--rust-rgb),.10);border-style:solid}
 table{border-collapse:collapse;width:100%;font-size:14px;min-width:760px}
 th,td{padding:10px 12px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
 th:first-child,td:first-child{text-align:left}
@@ -266,7 +339,11 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
 .empty{border:1.5px dashed var(--line);border-radius:var(--radius);padding:40px 20px;text-align:center;color:var(--muted)}
 .note-banner{background:#FBF6E8;border:1px solid #EADFBE;border-radius:8px;padding:10px 14px;font-size:13px;color:#6E5E2E;margin-bottom:14px}
 
-@media(max-width:860px){.pipeline{grid-template-columns:1fr}}
+/* Narrower stations + rely on the rail's own horizontal scroll, rather
+   than collapsing to a vertical stack - stacking would undercut the
+   assembly-line metaphor exactly on the devices most likely to be used
+   hands-on in the grow room. */
+@media(max-width:860px){.station{flex-basis:220px}}
 #printArea{display:none}
 .print-label{display:flex;align-items:center;justify-content:center}
 @media print{
@@ -288,7 +365,7 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
   <div class="hdr-top">
     <span id="hdrLogo" class="hdr-logo"></span>
     <h1 id="hdrName">Markwood Batch Tracker</h1>
-    <div class="sync" id="sync"><span class="dot"></span><span id="syncText">Loading…</span></div>
+    <div class="sync" id="sync"><span class="dot-wrap"><span class="dot"></span></span><span id="syncText">Loading…</span></div>
     <button class="hdr-gear" id="hdrGear" onclick="openPrefs()" title="Appearance & settings" aria-label="Settings">⚙</button>
   </div>
   <nav>
@@ -311,7 +388,7 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
     <div class="spacer"></div>
     <button class="btn btn-sm" onclick="exportCSV()">⬇ Export CSV</button>
   </div>
-  <div class="pipeline" id="pipeline"></div>
+  <div class="rail" id="pipeline"></div>
 </section>
 
 <!-- BATCH DETAIL -->
@@ -822,7 +899,14 @@ const daysBetween = (a,b)=> Math.round((new Date(b)-new Date(a))/86400000);
 const fmtWeight = g => g>=1000 ? (g/1000).toFixed(g>=10000?1:2)+" kg" : Math.round(g)+" g";
 const money = n => "$"+(Math.round(n*100)/100).toFixed(2);
 
-function setSync(state,text){ const el=$("sync"); el.className="sync "+state; $("syncText").textContent=text; }
+function setSync(state,text){
+  const el=$("sync"); el.className="sync "+state;
+  // Swap the plain dot for the pinwheel spinner specifically while
+  // syncing (state==="") - a functional reuse of the pinwheel motif,
+  // not a second decorative element (2026-08-25).
+  el.querySelector(".dot-wrap").innerHTML = state==="" ? pinwheelSpinnerHTML(12) : `<span class="dot"></span>`;
+  $("syncText").textContent=text;
+}
 
 function batchCounts(b){
   const c={incubating:b.blocks_total,fruiting:0,complete:0,contaminated:0,failed:0,culled:0};
@@ -904,7 +988,25 @@ function sizesInState(b,state){
 function batchHasMultipleSizes(b){ const ls=blockLines(b); return ls && ls.length>1; }
 const batchYield = b => harvests.filter(h=>h.batch_id===b.id).reduce((s,h)=>s+Number(h.weight_g),0);
 const batchHarvestCount = b => harvests.filter(h=>h.batch_id===b.id).length;
-function batchColumn(b){ const c=batchCounts(b); if(c.fruiting>0) return "fruiting"; if(c.incubating>0) return b.ready_date?"ready":"incubating"; return "complete"; }
+/* Real behaviour change (2026-08-25, Adam's ask, not a pure refactor):
+   previously any batch with zero fruiting/incubating blocks fell through
+   to "complete" regardless of whether those resolved blocks were
+   actually complete, contaminated, failed, or culled - a 100%-
+   contaminated batch showed up filed under "Complete". Now a batch only
+   lands in the new "offramp" bucket (rendered as its own pipeline
+   station) if it has zero complete blocks too - i.e. a total loss.
+   "Complete wins": any batch with at least some complete blocks stays
+   filed under Complete even if it also has losses, same as before for
+   that case - confirmed with Adam rather than guessed, since this
+   changes which station a real mixed-outcome batch appears in. */
+function batchColumn(b){
+  const c=batchCounts(b);
+  if(c.fruiting>0) return "fruiting";
+  if(c.incubating>0) return b.ready_date?"ready":"incubating";
+  if(c.complete>0) return "complete";
+  if(c.contaminated>0||c.failed>0||c.culled>0) return "offramp";
+  return "complete"; // zero-block edge case, unchanged fallback
+}
 function firstMoveTo(b,state){ const ms=movements.filter(m=>m.batch_id===b.id&&m.to_state===state).sort((a,x)=>a.move_date<x.move_date?-1:1); return ms[0]?.move_date||null; }
 function costRow(species){ return costs.find(x=>x.species.toLowerCase()===species.toLowerCase()); }
 function salePrice(species){ const c=costRow(species); return c?.sale_price_kg?Number(c.sale_price_kg):null; }
@@ -1054,25 +1156,88 @@ function miniGrid(b, big=false){
   for(const st of STATE_ORDER){ const v=displayState(st,b); for(let i=0;i<Math.max(0,c[st]);i++) sq+=`<span class="sq ${v.cls}" title="${v.label}"></span>`; }
   return `<div class="bgrid${big?" big":""}">${sq}</div>`;
 }
+/* Pinwheel (2026-08-25) - the multi-category evolution of Farm Panel's
+   own single-metric arc gauge (same concentric-SVG "instrument dial"
+   language - see panel.html's .gauge-svg - but pie-sliced into one
+   wedge per status instead of one continuous fill, since a batch's
+   status is inherently multi-category, not a single number). Shown
+   alongside the block-grid tiles on every card, not replacing them -
+   the grid gives literal per-block granularity, the pinwheel gives
+   at-a-glance proportion. Also doubles as the app's loading spinner
+   (pinwheelSpinnerHTML below) - a functional reuse of the same motif,
+   not just a second decorative element.
+
+   Routes through displayState() exactly like miniGrid() does above, so
+   a ready-marked batch's still-incubating blocks count under "ready"
+   (purple) here too - skipping that would make the pinwheel visibly
+   disagree with the block-grid sitting right next to it on the same
+   batch. */
+const PINWHEEL_R = 42, PINWHEEL_C = 2*Math.PI*PINWHEEL_R, PINWHEEL_GAP = 2;
+function pinwheelStates(b){
+  const c=batchCounts(b), out={};
+  for(const st of STATE_ORDER){ const v=displayState(st,b); if(c[st]>0) out[v.cls]=(out[v.cls]||0)+c[st]; }
+  return out;
+}
+function pinwheelSlicesHTML(entries){
+  // entries: [[cls,count],...] with counts already proportional (real
+  // counts for the data variant, equal placeholder weights for the
+  // spinner) - shared slice-drawing logic so both variants stay visually
+  // consistent (same gap, same stroke width via CSS) rather than two
+  // independently-tuned implementations.
+  const total = entries.reduce((s,[,n])=>s+n,0);
+  if(!total) return "";
+  let offset=0, segs="";
+  for(const [cls,count] of entries){
+    const len = Math.max(0, PINWHEEL_C*(count/total) - PINWHEEL_GAP);
+    segs += `<circle class="pinwheel-seg" style="stroke:var(--st-${cls})" stroke-dasharray="${len.toFixed(2)} ${(PINWHEEL_C-len).toFixed(2)}" stroke-dashoffset="${(-offset).toFixed(2)}" cx="50" cy="50" r="${PINWHEEL_R}"></circle>`;
+    offset += PINWHEEL_C*(count/total);
+  }
+  return segs;
+}
+function pinwheelHTML(b, size=36){
+  const entries = Object.entries(pinwheelStates(b));
+  const segs = pinwheelSlicesHTML(entries);
+  return `<svg class="pinwheel" viewBox="0 0 100 100" width="${size}" height="${size}" role="img" aria-label="Batch status breakdown"><circle class="pinwheel-track" cx="50" cy="50" r="${PINWHEEL_R}"></circle>${segs}</svg>`;
+}
+function pinwheelSpinnerHTML(size=28){
+  // Fixed placeholder slices (all 7 status colors, equal width) - no
+  // real data needed while loading, this is purely the loading motif.
+  const entries = STATE_ORDER.concat("ready").map(cls=>[cls,1]);
+  const segs = pinwheelSlicesHTML(entries);
+  return `<svg class="pinwheel pinwheel-spinner" viewBox="0 0 100 100" width="${size}" height="${size}" role="img" aria-label="Loading"><circle class="pinwheel-track" cx="50" cy="50" r="${PINWHEEL_R}"></circle>${segs}</svg>`;
+}
 function countSummary(c,b){
   return STATE_ORDER.filter(s=>c[s]>0).map(s=>`${c[s]} ${displayState(s,b).label.toLowerCase()}`).join(" · ") || "—";
 }
+/* True only during the window between initial paint (loadCache()+
+   renderAll(), synchronous) and loadAll() resolving - reuses the sync
+   dot's own state as the single source of truth rather than tracking a
+   second "are we loading" flag, since setSync() already records exactly
+   this (state==="" while a fetch/save is in flight). */
+function isSyncing(){ const el=$("sync"); return !!el && el.className.trim()==="sync"; }
 function renderPipeline(){
   const q = ($("search").value||"").toLowerCase();
-  const cols = {incubating:[],ready:[],fruiting:[],complete:[]};
+  const cols = {incubating:[],ready:[],fruiting:[],complete:[],offramp:[]};
   for(const b of batches){
     if(b.archived) continue;
     const hay = [b.name,b.species,b.substrate,b.spawn_code,b.method,"#"+b.batch_no].join(" ").toLowerCase();
     if(q && !hay.includes(q)) continue;
     cols[batchColumn(b)].push(b);
   }
-  const colDefs=[["incubating","Incubating"],["ready","Ready to fruit"],["fruiting","Fruiting"],["complete","Complete"]];
-  const colColor={incubating:"var(--st-incubating)",ready:"var(--st-ready)",fruiting:"var(--st-fruiting)",complete:"var(--st-complete)"};
+  const colDefs=[["incubating","Incubating"],["ready","Ready to fruit"],["fruiting","Fruiting"],["complete","Complete"],["offramp","Off-ramp"]];
+  const colColor={incubating:"var(--st-incubating)",ready:"var(--st-ready)",fruiting:"var(--st-fruiting)",complete:"var(--st-complete)",offramp:"var(--st-contaminated)"};
   const dragOk=key=>key==="incubating"||key==="ready";
+  // A brand-new device with no cache yet would otherwise flash "Nothing
+  // here" for every station during the initial loadAll() round-trip,
+  // misleadingly claiming zero batches exist rather than "still
+  // loading" - the pinwheel spinner fixes that (2026-08-25).
+  const emptyHTML = isSyncing()
+    ? `<div class="empty" style="padding:24px">${pinwheelSpinnerHTML(28)}</div>`
+    : `<div class="empty" style="padding:24px">Nothing here</div>`;
   $("pipeline").innerHTML = colDefs.map(([key,label])=>`
-    <div class="col" style="border-top:3px solid ${colColor[key]}"${dragOk(key)?` ondragover="pipelineColDragOver(event)" ondragenter="this.classList.add('drop-ok')" ondragleave="this.classList.remove('drop-ok')" ondrop="pipelineColDrop(event,'${key}')"`:""}>
-      <div class="col-head"><h2>${label}</h2><span class="count">${cols[key].length} batch${cols[key].length===1?"":"es"}</span></div>
-      ${cols[key].map(cardHTML).join("") || `<div class="empty" style="padding:24px">Nothing here</div>`}
+    <div class="station${key==="offramp"?" station-offramp":""}" style="border-top:3px solid ${colColor[key]}"${dragOk(key)?` ondragover="pipelineColDragOver(event)" ondragenter="this.classList.add('drop-ok')" ondragleave="this.classList.remove('drop-ok')" ondrop="pipelineColDrop(event,'${key}')"`:""}>
+      <div class="station-head"><h2>${label}</h2><span class="count">${cols[key].length} batch${cols[key].length===1?"":"es"}</span></div>
+      ${cols[key].map(cardHTML).join("") || emptyHTML}
     </div>`).join("");
 }
 let dragBatchId=null;
@@ -1097,8 +1262,13 @@ function cardHTML(b){
   const canDrag=col==="incubating"||col==="ready";
   const eta = c.fruiting>0 ? harvestEta(b) : null;
   return `<div class="card"${canDrag?` draggable="true" ondragstart="cardDragStart(event,'${b.id}')" ondragend="cardDragEnd(event)"`:""} onclick="openBatch('${b.id}')">
-    <h3>${esc(b.name)} <span class="bno mono">#${b.batch_no}</span></h3>
-    <div class="species">${esc(b.species)}${b.spawn_code?` · <span class="mono">${esc(b.spawn_code)}</span>`:""}</div>
+    <div class="card-head">
+      ${pinwheelHTML(b)}
+      <div class="card-head-text">
+        <h3>${esc(b.name)} <span class="bno mono">#${b.batch_no}</span></h3>
+        <div class="species">${esc(b.species)}${b.spawn_code?` · <span class="mono">${esc(b.spawn_code)}</span>`:""}</div>
+      </div>
+    </div>
     ${miniGrid(b)}
     <div class="stats">
       <span><b>${fmtWeight(y)}</b> yield</span>
@@ -2661,7 +2831,7 @@ async function deleteCost(sp){
 function renderArchive(){
   const list=batches.filter(b=>b.archived);
   $("archiveWrap").innerHTML = list.length
-    ? `<div class="pipeline" style="grid-template-columns:repeat(auto-fill,minmax(280px,1fr))">${list.map(cardHTML).join("")}</div>`
+    ? `<div class="card-grid">${list.map(cardHTML).join("")}</div>`
     : `<div class="empty">No archived batches. Archiving keeps a batch's data in Analytics but clears it off the pipeline.</div>`;
 }
 
