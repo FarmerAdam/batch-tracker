@@ -11,17 +11,29 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <style>
 :root{
-  --bg:#E7E3DC; --card:#FFFFFF; --ink:#2A241B; --muted:#7A7264; --line:#E4DFD3;
+  --bg:#E8E2D5; --card:#FFFFFF; --ink:#2A241B; --muted:#7A7264; --line:#E4DFD3;
   --accent:#3E5C42; --accent-ink:#FFFFFF; --danger:#B5402E;
-  --st-incubating:#C9C2B4; --st-ready:#8C6FB0; --st-fruiting:#4D8FD1; --st-complete:#5E9E54;
-  --st-contaminated:#C2503C; --st-failed:#D98E3A; --st-culled:#6E665A;
+  /* Status palette (2026-08-25, Adam's own palette - palettefull.html) -
+     theme-invariant on purpose (same 7 hex values in both themes, like
+     --rust already was) rather than the old light/dark-tuned set, since
+     these are now deliberately saturated "signal" colors meant to read
+     the same regardless of theme, not colors that need softening for
+     dark mode. fruiting intentionally reuses the exact brand rust hex -
+     confirmed cross-over, not a collision. culled (#423D36) is the one
+     value NOT in Adam's original file - his Charcoal core color is
+     almost exactly this app's dark --bg, so using it directly would
+     make culled tiles nearly invisible on a dark card; this is a
+     stand-in deep-umber neutral for that slot only. */
+  --st-incubating:#4A4A4C; --st-ready:#B8E8E8; --st-fruiting:#F04E23; --st-complete:#5FBF8F;
+  --st-contaminated:#C23B3B; --st-failed:#FFB84D; --st-culled:#423D36;
   --slot-empty-bg:#FBFAF6; --slot-empty-ink:#C4BCAC; --slot-place-bg:#EFF3EF;
   --radius:10px; --shadow:0 1px 3px rgba(42,36,27,.08);
   /* Rebrand foundation (2026-08-25) - "two-tone duotone" retro palette,
      a sibling identity to Farm Panel's rust/tan/near-black system without
-     being a literal reskin of it. --rust/--rust-dim are the literal same
-     hex values Farm Panel uses, deliberately, as the one shared thread
-     between the two apps' otherwise-distinct palettes. --surface-2 is a
+     being a literal reskin of it. --rust/--rust-dim are Adam's own
+     "Safety Orange" core color (palettefull.html) - not literally shared
+     with Farm Panel's rust hex anymore as of this update, but still the
+     same *role* (the one brand accent) and same family. --surface-2 is a
      second, visibly cooler-toned surface than --card/--bg (used for
      chrome that wants the duotone contrast - nav, rail/station chrome) -
      that warm/cool pairing IS the duotone, most visible in dark mode
@@ -31,13 +43,13 @@
      what it is today (a user-selectable override applied as an inline
      style, see applyAppearance()), not repurposed as "the new rust". */
   --surface-2:#DCD7CE; --ink-dim:#6E685D;
-  --rust:#C9593D; --rust-dim:#642211; --rust-rgb:201,89,61;
+  --rust:#F04E23; --rust-dim:#7A2812; --rust-rgb:240,78,35;
   --display:'Oswald','Arial Narrow','Helvetica Neue Condensed',sans-serif;
 }
 [data-theme="dark"]{
-  --bg:#17150F; --card:#221F1A; --ink:#EDE8DF; --muted:#A39A8B; --line:#3A352F;
+  --bg:#1A1A1A; --card:#221F1A; --ink:#EDE8DF; --muted:#A39A8B; --line:#3A352F;
   --accent-ink:#FFFFFF; --danger:#E07A66;
-  --st-incubating:#7C766A; --shadow:0 1px 3px rgba(0,0,0,.4);
+  --shadow:0 1px 3px rgba(0,0,0,.4);
   --slot-empty-bg:#211F1B; --slot-empty-ink:#6B6458; --slot-place-bg:#2A2A22;
   /* New tokens only below - --bg/--card/--ink/etc above are untouched
      here on purpose (step 1 of the rebrand is additive-only, see the
@@ -48,7 +60,7 @@
      the duotone, most visible here since dark is where the aesthetic
      actually lives. */
   --surface-2:#201E22; --ink-dim:#A39A8B;
-  --rust:#C9593D; --rust-dim:#8A3A26;
+  --rust:#F04E23; --rust-dim:#B33A18;
 }
 [data-theme="dark"] input,[data-theme="dark"] select,[data-theme="dark"] textarea{background:#1F1D1A;border-color:#3A352F}
 [data-theme="dark"] .note-banner{background:#2B2820;border-color:#423D2C;color:#C9BE9C}
@@ -169,13 +181,28 @@ main{max-width:1440px;margin:0 auto;padding:16px}
    alongside the block-grid below it, not replacing it. */
 .card-head{display:flex;gap:10px;align-items:flex-start;margin-bottom:2px}
 .card-head-text{min-width:0;flex:1}
-.pinwheel{flex:none;transform:rotate(-90deg)}
+/* Rotation lives on an inner <g> in the markup now (pinwheelHTML/
+   pinwheelSpinnerHTML), not here - the spinner's outer orbit track/pill
+   sit outside that rotated group and shouldn't spin with it, so this
+   can't be a blanket transform on the whole .pinwheel svg like before. */
+.pinwheel{flex:none}
 .pinwheel-track{fill:none;stroke:var(--line);stroke-width:14}
 .pinwheel-seg{fill:none;stroke-width:14;stroke-linecap:butt}
+/* Rim ticks (2026-08-25) - see pinwheelTicksHTML()'s own comment. */
+.pinwheel-tick{stroke:var(--muted);stroke-width:1.6;opacity:.55}
+.pinwheel-tick.major{stroke:var(--rust);opacity:.8;stroke-width:2.2}
+/* Orbit track + pill (2026-08-25, spinner only) - see pinwheelSpinnerHTML's
+   own comment. Adam's ask, verified against a live mockup before this
+   was built: a thin white 50%-opacity track with a richer dark-grey pill
+   orbiting it, not the brand rust - the spinner deliberately doesn't use
+   accent color here so it doesn't compete with the ticked ring's own
+   colors underneath it. */
+.pinwheel-orbit-track{fill:none;stroke:#FFFFFF;stroke-opacity:.5;stroke-width:2}
+.pinwheel-orbit-pill{fill:none;stroke:#4A4540;stroke-width:5;stroke-linecap:round}
 @media(prefers-reduced-motion:no-preference){
-  .pinwheel-spinner{animation:pinwheel-spin 1.1s linear infinite}
+  .pinwheel-orbit-pill{animation:pinwheel-orbit-spin 1.8s linear infinite}
 }
-@keyframes pinwheel-spin{to{transform:rotate(270deg)}}
+@keyframes pinwheel-orbit-spin{to{stroke-dashoffset:-364.4}}
 
 /* batch detail */
 .detail-head{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:14px}
@@ -1194,17 +1221,53 @@ function pinwheelSlicesHTML(entries){
   }
   return segs;
 }
+// Fine radiating tick marks around the rim (2026-08-25, Adam's ask for
+// "more detail... pins/dashes") - drawn as a ring of individual <line>s
+// just outside the data ring, every 6th one a bit bolder/brighter
+// ("major" ticks) for rhythm, same idea as Farm Panel's own dashed gauge
+// tick ring (panel.html's .gauge-ticks) but as discrete pins rather than
+// a dashed stroke, per the reference photo's dial.
+function pinwheelTicksHTML(count=48, r1=47, r2=51, majorEvery=6){
+  let out = '';
+  for(let i=0;i<count;i++){
+    const a = (i/count) * Math.PI*2;
+    const x1 = 50+r1*Math.cos(a), y1 = 50+r1*Math.sin(a);
+    const x2 = 50+r2*Math.cos(a), y2 = 50+r2*Math.sin(a);
+    const major = i % majorEvery === 0;
+    out += `<line class="pinwheel-tick${major?' major':''}" x1="${x1.toFixed(2)}" y1="${y1.toFixed(2)}" x2="${x2.toFixed(2)}" y2="${y2.toFixed(2)}"></line>`;
+  }
+  return out;
+}
 function pinwheelHTML(b, size=36){
   const entries = Object.entries(pinwheelStates(b));
   const segs = pinwheelSlicesHTML(entries);
-  return `<svg class="pinwheel" viewBox="0 0 100 100" width="${size}" height="${size}" role="img" aria-label="Batch status breakdown"><circle class="pinwheel-track" cx="50" cy="50" r="${PINWHEEL_R}"></circle>${segs}</svg>`;
+  return `<svg class="pinwheel" viewBox="0 0 100 100" width="${size}" height="${size}" role="img" aria-label="Batch status breakdown">
+    <g style="transform:rotate(-90deg);transform-origin:50px 50px">${pinwheelTicksHTML()}</g>
+    <circle class="pinwheel-track" cx="50" cy="50" r="${PINWHEEL_R}"></circle>${segs}</svg>`;
 }
+// Loading spinner (2026-08-25) - NOT the whole ring spinning (that was
+// the first version, felt flat) and NOT a needle pivoting from a center
+// hub (tried, Adam's ask was specifically "no hub" - the whole indicator
+// should live on the rim). A thick outer track sits just outside the
+// ticks, with a short fine-oval "pill" that continuously travels around
+// it via an animated stroke-dashoffset - same stroke-dasharray technique
+// the proportion segments above already use, just animated. viewBox is
+// enlarged (130 vs the data variant's 100) so the wider orbit radius has
+// room without clipping.
+const PINWHEEL_ORBIT_R = 58, PINWHEEL_ORBIT_C = 2*Math.PI*PINWHEEL_ORBIT_R, PINWHEEL_ORBIT_PILL_LEN = 16;
 function pinwheelSpinnerHTML(size=28){
   // Fixed placeholder slices (all 7 status colors, equal width) - no
   // real data needed while loading, this is purely the loading motif.
   const entries = STATE_ORDER.concat("ready").map(cls=>[cls,1]);
   const segs = pinwheelSlicesHTML(entries);
-  return `<svg class="pinwheel pinwheel-spinner" viewBox="0 0 100 100" width="${size}" height="${size}" role="img" aria-label="Loading"><circle class="pinwheel-track" cx="50" cy="50" r="${PINWHEEL_R}"></circle>${segs}</svg>`;
+  return `<svg class="pinwheel pinwheel-spinner" viewBox="0 0 130 130" width="${size}" height="${size}" role="img" aria-label="Loading">
+    <g transform="translate(15,15)">
+      <g style="transform:rotate(-90deg);transform-origin:50px 50px">${pinwheelTicksHTML()}<circle class="pinwheel-track" cx="50" cy="50" r="${PINWHEEL_R}"></circle>${segs}</g>
+      <circle class="pinwheel-orbit-track" cx="50" cy="50" r="${PINWHEEL_ORBIT_R}"></circle>
+      <circle class="pinwheel-orbit-pill" cx="50" cy="50" r="${PINWHEEL_ORBIT_R}"
+        stroke-dasharray="${PINWHEEL_ORBIT_PILL_LEN} ${(PINWHEEL_ORBIT_C-PINWHEEL_ORBIT_PILL_LEN).toFixed(2)}"></circle>
+    </g>
+  </svg>`;
 }
 function countSummary(c,b){
   return STATE_ORDER.filter(s=>c[s]>0).map(s=>`${c[s]} ${displayState(s,b).label.toLowerCase()}`).join(" · ") || "—";
@@ -1274,7 +1337,7 @@ function cardHTML(b){
       <span><b>${fmtWeight(y)}</b> yield</span>
       <span><b>${age}</b> days</span>
       <span style="color:var(--muted)">${countSummary(c,b)}</span>
-      ${b.ready_date?`<span style="color:var(--st-ready)">Ready since ${fmtDate(b.ready_date)}</span>`:""}
+      ${b.ready_date?`<span style="color:var(--muted)">Ready since ${fmtDate(b.ready_date)}</span>`:""}
       ${eta?`<span style="color:${eta.ready?'var(--st-complete)':'var(--muted)'};font-weight:${eta.ready?'700':'400'}" title="Estimated from species harvest-timing settings">${eta.text}</span>`:""}
     </div>
   </div>`;
