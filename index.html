@@ -62,6 +62,50 @@
   --surface-2:#201E22; --ink-dim:#A39A8B;
   --rust:#F04E23; --rust-dim:#B33A18;
 }
+/* Palette tiers 2 & 3 (2026-08-27) - full alternate identities, not just
+   accent swaps. Each palette redefines everything the retro tokens
+   above define (bg/card/ink/status colors/rust/etc); --accent itself is
+   NOT set here - that stays the existing per-user JS-applied inline
+   style (applyAppearance()/setAccent()), just seeded with each
+   palette's own default the moment it's switched to (setPalette()) so
+   it starts complementary rather than carrying over a clashing color
+   from a different palette. Kept the accent constant across light/dark
+   within each palette (not per-theme) to match how --accent already
+   works everywhere else in the app - the approved Foxfire mockup used a
+   slightly different violet per theme, settled on one shade here
+   (#6B4FA0) that reads fine against both, for that consistency. */
+[data-palette="markwood"]{
+  --bg:#F0E6D2; --card:#FFFDF7; --ink:#3A2A1C; --muted:#8A7259; --line:#E3D5BC;
+  --accent-ink:#F0E6D2; --danger:#7A2818; --danger-rgb:122,40,24;
+  --st-incubating:#7A6A54; --st-ready:#D4B36A; --st-fruiting:#A8331D; --st-complete:#6B7A4F;
+  --st-contaminated:#8B2E1F; --st-failed:#C08A2E; --st-culled:#4A3B2A;
+  --slot-empty-bg:#F7F0E0; --slot-empty-ink:#C9B896; --slot-place-bg:#EDE4D0;
+  --surface-2:#E6D9C0; --ink-dim:#6E5A44;
+  --rust:#A8331D; --rust-dim:#6B2013; --rust-rgb:168,51,29;
+}
+[data-palette="markwood"][data-theme="dark"]{
+  --bg:#1F1710; --card:#2B2015; --ink:#EDE0C8; --muted:#A5937A; --line:#3D2F20;
+  --danger:#C97A5E; --danger-rgb:201,122,94;
+  --slot-empty-bg:#241B12; --slot-empty-ink:#6B5A44; --slot-place-bg:#2A2015;
+  --surface-2:#251C13; --ink-dim:#A5937A;
+  --rust-dim:#8A3624;
+}
+[data-palette="foxfire"]{
+  --bg:#E4EBE2; --card:#FFFFFF; --ink:#1C2B24; --muted:#6B8078; --line:#D3DED2;
+  --accent-ink:#FFFFFF; --danger:#96303F; --danger-rgb:150,48,63;
+  --st-incubating:#4A5850; --st-ready:#3FCDB0; --st-fruiting:#B266E0; --st-complete:#4FD68C;
+  --st-contaminated:#B23B4A; --st-failed:#E0A83D; --st-culled:#33382F;
+  --slot-empty-bg:#F2F6F1; --slot-empty-ink:#B7C6BE; --slot-place-bg:#DCEAE3;
+  --surface-2:#D6E2DA; --ink-dim:#5A7168;
+  --rust:#1F8F5C; --rust-dim:#145E3D; --rust-rgb:31,143,92;
+}
+[data-palette="foxfire"][data-theme="dark"]{
+  --bg:#0B120E; --card:#131C16; --ink:#DCEAE2; --muted:#7C9186; --line:#22302A;
+  --danger:#D98A96; --danger-rgb:217,138,150;
+  --slot-empty-bg:#0F1712; --slot-empty-ink:#3E4A43; --slot-place-bg:#152019;
+  --surface-2:#101810; --ink-dim:#7C9186;
+  --rust:#4FD68C; --rust-dim:#2E9E68; --rust-rgb:79,214,140;
+}
 [data-theme="dark"] input,[data-theme="dark"] select,[data-theme="dark"] textarea{background:#1F1D1A;border-color:#3A352F}
 [data-theme="dark"] .note-banner{background:#2B2820;border-color:#423D2C;color:#C9BE9C}
 [data-theme="dark"] .label,[data-theme="dark"] .qr-card{background:#fff}
@@ -119,6 +163,17 @@ header{background:var(--card);border-bottom:1px solid var(--line);position:stick
 .swatch.sel::after{content:"";position:absolute;top:0;right:0;width:0;height:0;border-top:9px solid var(--rust);border-left:9px solid transparent}
 #pf_themeseg{margin-top:6px}
 #pf_themeseg button.active{background:var(--accent);color:var(--accent-ink)}
+/* Palette picker (2026-08-27) - the big identity choice, sits above Theme
+   since it determines the whole color system Theme/Accent then operate
+   within. Each option is a small strip of that palette's own dark-mode
+   colors (most characterful representation of each) rather than a plain
+   text label - the point is to recognise the *feel*, not read a name. */
+.palette-picker{display:flex;gap:10px;margin-top:6px;flex-wrap:wrap}
+.palette-opt{display:flex;flex-direction:column;gap:6px;padding:8px;border:2px solid var(--line);border-radius:10px;cursor:pointer;background:var(--card);flex:1;min-width:110px}
+.palette-opt.sel{border-color:var(--rust)}
+.palette-opt .p-strip{display:flex;height:22px;border-radius:5px;overflow:hidden}
+.palette-opt .p-strip span{flex:1}
+.palette-opt .p-name{font-size:12.5px;font-weight:600;text-align:center}
 .logo-prev{height:38px;border:1px solid var(--line);border-radius:6px;background:#fff;padding:3px}
 nav{display:flex;gap:4px;padding:0 12px 0;max-width:1440px;margin:0 auto;overflow-x:auto}
 nav button{padding:9px 14px;font-weight:600;font-size:14px;color:var(--muted);border-bottom:3px solid transparent;white-space:nowrap}
@@ -770,6 +825,9 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
     <input id="pf_user" placeholder="e.g. Adam, Emma" oninput="prefUserChanged()">
     <div class="sub" id="pf_userhint" style="margin-top:4px"></div>
 
+    <label>Palette</label>
+    <div class="palette-picker" id="pf_palettepicker"></div>
+
     <label>Theme</label>
     <div class="seg" id="pf_themeseg" style="display:flex">
       <button data-theme="light" onclick="setTheme('light')">☀ Light</button>
@@ -816,7 +874,23 @@ const ACCENTS=[
   {name:"Plum",v:"#7A4E86"},{name:"Berry",v:"#9E3B63"},{name:"Rust",v:"#B5582E"},
   {name:"Amber",v:"#B9852B"},{name:"Slate",v:"#4A5568"}
 ];
-let prefs={user:"", theme:"light", accent:"#3E5C42"};
+// Three selectable full identities (2026-08-27, Adam's ask - Em doesn't
+// share his taste for the retro look). Each entry's `strip` is that
+// palette's own dark-mode colors, used for the picker preview swatch -
+// picked because dark is each palette's most characterful showing.
+// `accent` is that palette's own default primary-button color, applied
+// whenever the palette is switched (see setPalette()) - the existing
+// 10-swatch ACCENTS picker still works on top of it exactly as before,
+// this just gives each palette a sensible starting point instead of
+// carrying over whatever accent happened to be set under a different
+// palette (a cyan accent picked under Foxfire would clash badly once
+// switched to Markwood, for example).
+const PALETTES={
+  retro:{name:"Retro 80s", accent:"#3E5C42", strip:["#1A1A1A","#F04E23","#B8E8E8","#5FBF8F"]},
+  markwood:{name:"Markwood", accent:"#4A2017", strip:["#1F1710","#A8331D","#D4B36A","#6B7A4F"]},
+  foxfire:{name:"Foxfire", accent:"#6B4FA0", strip:["#0B120E","#9B6FD9","#4FD68C","#3FCDB0"]}
+};
+let prefs={user:"", theme:"light", accent:"#3E5C42", palette:"retro"};
 let branding={farmName:"Markwood Batch Tracker", logo:null};
 
 function prefsKey(){ return "mn_prefs::"+(currentUser?.email||localStorage.getItem("mn_device_user")||"default"); }
@@ -828,7 +902,7 @@ function loadPrefs(){
 }
 function savePrefs(){
   if(prefs.user) localStorage.setItem("mn_device_user",prefs.user);
-  try{ localStorage.setItem(prefsKey(),JSON.stringify({theme:prefs.theme,accent:prefs.accent})); }catch(e){}
+  try{ localStorage.setItem(prefsKey(),JSON.stringify({theme:prefs.theme,accent:prefs.accent,palette:prefs.palette})); }catch(e){}
 }
 function effectiveTheme(){
   if(prefs.theme==="auto") return window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";
@@ -836,6 +910,7 @@ function effectiveTheme(){
 }
 function applyAppearance(){
   document.documentElement.setAttribute("data-theme",effectiveTheme());
+  document.documentElement.setAttribute("data-palette",PALETTES[prefs.palette]?prefs.palette:"retro");
   document.documentElement.style.setProperty("--accent",prefs.accent);
 }
 if(window.matchMedia) window.matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change",()=>{ if(prefs.theme==="auto") applyAppearance(); });
@@ -860,7 +935,7 @@ async function loadBranding(){
 function openPrefs(){
   $("pf_user").value=prefs.user||"";
   prefUserChanged();
-  renderThemeSeg(); renderSwatches();
+  renderPalettePicker(); renderThemeSeg(); renderSwatches();
   $("pf_farmname").value=branding.farmName||"";
   renderHdrLogoPrev();
   const siEl=$("pf_signedinas");
@@ -871,11 +946,24 @@ function prefUserChanged(){
   const name=$("pf_user").value.trim();
   $("pf_userhint").textContent = name ? `Theme & accent will be remembered for "${name}" on this device.` : "Enter a name so your look is remembered separately from others on this device.";
 }
+function renderPalettePicker(){
+  $("pf_palettepicker").innerHTML=Object.entries(PALETTES).map(([key,p])=>
+    `<div class="palette-opt${key===prefs.palette?" sel":""}" onclick="setPalette('${key}')">
+      <div class="p-strip">${p.strip.map(c=>`<span style="background:${c}"></span>`).join("")}</div>
+      <div class="p-name">${p.name}</div>
+    </div>`).join("");
+}
 function renderThemeSeg(){
   document.querySelectorAll("#pf_themeseg button").forEach(b=>b.classList.toggle("active",b.dataset.theme===prefs.theme));
 }
 function renderSwatches(){
   $("pf_swatches").innerHTML=ACCENTS.map(a=>`<span class="swatch${a.v===prefs.accent?" sel":""}" style="background:${a.v}" title="${a.name}" onclick="setAccent('${a.v}')"></span>`).join("");
+}
+function setPalette(key){
+  if(!PALETTES[key]) return;
+  prefs.user=$("pf_user").value.trim();
+  prefs.palette=key; prefs.accent=PALETTES[key].accent;
+  savePrefs(); applyAppearance(); renderPalettePicker(); renderSwatches();
 }
 function setTheme(t){
   prefs.user=$("pf_user").value.trim();
