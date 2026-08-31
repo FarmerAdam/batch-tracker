@@ -811,6 +811,7 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
     <label>Reason (optional)</label>
     <input id="rm_note" placeholder="e.g. Spent, contamination, pests…">
     <div class="chips">
+      <button class="chip" onclick="addRemoveChip('Not fully colonised')">Not fully colonised</button>
       <button class="chip" onclick="addRemoveChip('Spent')">Spent</button>
       <button class="chip" onclick="addRemoveChip('Contamination')">Contamination</button>
       <button class="chip" onclick="addRemoveChip('Infestation / pests')">Infestation / pests</button>
@@ -1288,8 +1289,17 @@ function resolvedBlockCount(b){
    block in Completed view, instead of every block ever moved to fruiting. */
 function resolvedFruitedCount(b){
   const toFruitCum = movements.filter(m=>m.batch_id===b.id&&m.to_state==="fruiting").reduce((s,m)=>s+(m.count||0),0);
+  // A block sent back to incubation (2026-08-31 "back to incubation"
+  // removal outcome - colonisation wasn't actually finished when it got
+  // placed) left the fruiting count but never completed a real fruiting
+  // cycle, so it shouldn't count toward this "resolved-fruited" denominator
+  // (used for the Completed view's g/fruited-block efficiency stat below) -
+  // it'll count again once/if a later placement of that same stock
+  // genuinely resolves. Every other from-fruiting destination (complete/
+  // contaminated/failed/culled) still counts, same as before.
+  const backToIncubating = movements.filter(m=>m.batch_id===b.id&&m.from_state==="fruiting"&&m.to_state==="incubating").reduce((s,m)=>s+(m.count||0),0);
   const stillFruiting = Math.max(0, batchCounts(b).fruiting||0);
-  return Math.max(0, toFruitCum-stillFruiting);
+  return Math.max(0, toFruitCum-stillFruiting-backToIncubating);
 }
 function resolvedSubKg(b){
   const ls=blockLines(b); if(!ls) return null;
@@ -2390,6 +2400,7 @@ function openRemoveModal(){
           <span style="flex:1;font-size:13px">${esc(b?.name||"?")} (${byBatch[id]})</span>
           <select data-outcome-batch="${id}" style="flex:0 0 160px">
             <option value="">Choose…</option>
+            <option value="incubating">Back to incubation</option>
             <option value="contaminated">Contaminated</option>
             <option value="failed">Didn't colonise</option>
             <option value="culled">Culled / backlog</option>
@@ -2463,7 +2474,17 @@ async function confirmRemove(){
       const toMove=Math.min(removedCount,batchCounts(b).fruiting);
       if(toMove<=0) continue;
       const outcomeState=outcomeByBatch[batchId];
-      const outcomeNote=note ? `${STATES[outcomeState].label} on removal (${note})` : `${STATES[outcomeState].label} on removal`;
+      // "Back to incubation" reads oddly through the generic "<label> on
+      // removal" template ("Incubating on removal") - it's not being
+      // pulled off the shelf as a loss like the other three options, it's
+      // going right back into the incubation pipeline, so it gets its own
+      // phrasing (2026-08-31, Adam's ask: staff placing blocks in the
+      // fruiting chamber before colonisation was actually confirmed
+      // complete needed a way to send just that one block back rather
+      // than unwinding the whole batch's placement).
+      const outcomeNote = outcomeState==="incubating"
+        ? (note ? `Sent back to incubation (${note})` : "Sent back to incubation - colonisation wasn't complete")
+        : (note ? `${STATES[outcomeState].label} on removal (${note})` : `${STATES[outcomeState].label} on removal`);
       pushStateMove(b,outcomeState,toMove,outcomeNote);
       continue;
     }
