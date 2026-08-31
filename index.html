@@ -33,9 +33,22 @@
      landed, not still glowing) - same relationship re-derived per
      palette below rather than copy-pasted, since Markwood has no cyan
      to derive from and Foxfire already had a teal ready + a green rust
-     that a plain reuse would have collided with. */
+     that a plain reuse would have collided with.
+
+     --st-packed added 2026-09-01 (Adam's ask) - a distinct "packed and
+     ready for sale" outcome for grow-kit batches, which get sold whole
+     rather than harvested for weight on-site (see RESOLVED_STATES
+     below - deliberately kept OUT of that list,
+     so kit sales don't pool into the Analytics g/fruited-block and
+     cost/kg averages alongside real harvested batches, which would
+     skew both since a kit contributes real cost but zero logged
+     harvest weight). A muted plum - not reused from any existing
+     status hue here, and not a "danger" or "success" color since this
+     is neither: a resolved-but-neutral third outcome distinct from
+     both complete (harvested here) and the contaminated/failed/culled
+     loss states. */
   --st-incubating:#4A4A4C; --st-ready:#B8E8E8; --st-fruiting:#3FA35C; --st-complete:#3E7CB8;
-  --st-contaminated:#C23B3B; --st-failed:#FFB84D; --st-culled:#423D36;
+  --st-contaminated:#C23B3B; --st-failed:#FFB84D; --st-culled:#423D36; --st-packed:#8B5FA3;
   --slot-empty-bg:#FBFAF6; --slot-empty-ink:#C4BCAC; --slot-place-bg:#EFF3EF;
   --radius:10px; --shadow:0 1px 3px rgba(42,36,27,.08);
   /* Rebrand foundation (2026-08-25) - "two-tone duotone" retro palette,
@@ -88,7 +101,7 @@
   --bg:#F0E6D2; --card:#FFFDF7; --ink:#3A2A1C; --muted:#8A7259; --line:#E3D5BC;
   --accent-ink:#F0E6D2; --danger:#7A2818; --danger-rgb:122,40,24;
   --st-incubating:#7A6A54; --st-ready:#D4B36A; --st-fruiting:#5B7A42; --st-complete:#3D5A73;
-  --st-contaminated:#8B2E1F; --st-failed:#C08A2E; --st-culled:#4A3B2A;
+  --st-contaminated:#8B2E1F; --st-failed:#C08A2E; --st-culled:#4A3B2A; --st-packed:#6B4A5C;
   --slot-empty-bg:#F7F0E0; --slot-empty-ink:#C9B896; --slot-place-bg:#EDE4D0;
   --surface-2:#E6D9C0; --ink-dim:#6E5A44;
   --rust:#A8331D; --rust-dim:#6B2013; --rust-rgb:168,51,29;
@@ -104,7 +117,7 @@
   --bg:#E4EBE2; --card:#FFFFFF; --ink:#1C2B24; --muted:#6B8078; --line:#D3DED2;
   --accent-ink:#FFFFFF; --danger:#96303F; --danger-rgb:150,48,63;
   --st-incubating:#4A5850; --st-ready:#3FCDB0; --st-fruiting:#5A9C35; --st-complete:#2E86D9;
-  --st-contaminated:#B23B4A; --st-failed:#E0A83D; --st-culled:#33382F;
+  --st-contaminated:#B23B4A; --st-failed:#E0A83D; --st-culled:#33382F; --st-packed:#C9A876;
   --slot-empty-bg:#F2F6F1; --slot-empty-ink:#B7C6BE; --slot-place-bg:#DCEAE3;
   --surface-2:#D6E2DA; --ink-dim:#5A7168;
   --rust:#1F8F5C; --rust-dim:#145E3D; --rust-rgb:31,143,92;
@@ -291,7 +304,7 @@ th .info-dot{margin-left:5px}
 .legend span{display:inline-flex;align-items:center;gap:5px}
 .legend .sq{width:11px;height:11px;border-radius:2px;display:inline-block}
 .sq.incubating{background:var(--st-incubating)} .sq.fruiting{background:var(--st-fruiting)} .sq.ready{background:var(--st-ready)}
-.sq.complete{background:var(--st-complete)} .sq.contaminated{background:var(--st-contaminated)}
+.sq.complete{background:var(--st-complete)} .sq.packed{background:var(--st-packed)} .sq.contaminated{background:var(--st-contaminated)}
 .sq.failed{background:var(--st-failed)} .sq.culled{background:var(--st-culled)}
 
 /* card header + pinwheel (2026-08-25) - see pinwheelHTML()'s own JS
@@ -1041,11 +1054,17 @@ const STATES = {
   incubating:  {label:"Incubating",      color:"var(--st-incubating)"},
   fruiting:    {label:"Fruiting",        color:"var(--st-fruiting)"},
   complete:    {label:"Complete",        color:"var(--st-complete)"},
+  // Distinct from "complete" (2026-09-01, Adam's ask) - grow kits are sold
+  // as a whole unit rather than harvested for weight on-site, so they need
+  // their own outcome rather than pooling into "Complete", which real
+  // harvested batches' cost/kg efficiency stats in Analytics are computed
+  // from (see RESOLVED_STATES below, deliberately excludes "packed").
+  packed:      {label:"Packed / Ready for Sale", color:"var(--st-packed)"},
   contaminated:{label:"Contaminated",    color:"var(--st-contaminated)"},
   failed:      {label:"Didn't colonise", color:"var(--st-failed)"},
   culled:      {label:"Culled / backlog",color:"var(--st-culled)"}
 };
-const STATE_ORDER = ["incubating","fruiting","complete","contaminated","failed","culled"];
+const STATE_ORDER = ["incubating","fruiting","complete","packed","contaminated","failed","culled"];
 
 let batches=[], movements=[], harvests=[], costs=[], batchNotes=[];
 let zones=[], bays=[], placements=[];
@@ -1164,7 +1183,7 @@ function setSync(state,text){
 }
 
 function batchCounts(b){
-  const c={incubating:b.blocks_total,fruiting:0,complete:0,contaminated:0,failed:0,culled:0};
+  const c={incubating:b.blocks_total,fruiting:0,complete:0,packed:0,contaminated:0,failed:0,culled:0};
   for(const m of movements){ if(m.batch_id!==b.id) continue;
     if(c[m.from_state]!=null) c[m.from_state]-=m.count;
     if(c[m.to_state]!=null) c[m.to_state]+=m.count;
@@ -1215,7 +1234,7 @@ function harvestEta(b){
 /* counts per state, broken down by block size (kg). Returns {state:{kg:count,...}} */
 function batchCountsBySize(b){
   const ls=blockLines(b);
-  const out={incubating:{},fruiting:{},complete:{},contaminated:{},failed:{},culled:{}};
+  const out={incubating:{},fruiting:{},complete:{},packed:{},contaminated:{},failed:{},culled:{}};
   if(ls){ for(const l of ls){ const k=Number(l.kg)||0; out.incubating[k]=(out.incubating[k]||0)+(Number(l.count)||0); } }
   else { out.incubating[0]=b.blocks_total; } // single unknown size
   for(const m of movements.filter(m=>m.batch_id===b.id)){
@@ -1258,7 +1277,13 @@ function batchColumn(b){
   const c=batchCounts(b);
   if(c.fruiting>0) return "fruiting";
   if(c.incubating>0) return b.ready_date?"ready":"incubating";
-  if(c.complete>0) return "complete";
+  // "packed" (grow kits sold whole, 2026-09-01) folds into the same
+  // Pipeline column as "complete" - same "Complete wins" semantics as
+  // below (a batch with any packed OR complete blocks isn't a total
+  // loss), just not its own kanban lane. Keeping it a distinct
+  // backend state (not literally "complete") is still what matters for
+  // Analytics - see RESOLVED_STATES.
+  if(c.complete>0||c.packed>0) return "complete";
   if(c.contaminated>0||c.failed>0||c.culled>0) return "offramp";
   return "complete"; // zero-block edge case, unchanged fallback
 }
@@ -1300,7 +1325,19 @@ function blockCostExample(species,kg){ return subPerKg(species)*dryKgForLine({kg
    contaminated, failed to colonise, or culled). Blocks still colonising or
    still fruiting are excluded from cost/yield-efficiency math until they
    resolve, so in-progress batches don't drag down honest per-species figures
-   before they've had a chance to produce anything. */
+   before they've had a chance to produce anything.
+
+   "packed" (grow kits, 2026-09-01) deliberately NOT included here, even
+   though it's just as "resolved" as complete/contaminated/failed/culled
+   for stock-counting purposes (batchColumn, Pipeline, MAVIS's incubation-
+   stock queries all already treat it as done via batchCounts()). A kit
+   is sold as a whole unit, never weighed/harvested on-site - pooling it
+   into this g/fruited-block and cost/kg math would charge its real
+   substrate/spawn/bag cost against zero logged harvest weight, dragging
+   down the efficiency numbers for species that ARE actually harvested
+   here. Kit batches simply don't appear in this Completed-cycles view at
+   all right now - that's a real gap if kit-specific reporting is ever
+   wanted, just not the same gap this analytics view exists to avoid. */
 const RESOLVED_STATES = ["complete","contaminated","failed","culled"];
 function resolvedBlockCount(b){
   const c=batchCounts(b);
