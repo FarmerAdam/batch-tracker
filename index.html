@@ -520,6 +520,28 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
 @media print{
   /* default: don't print the QR-codes sheet style stuff */
   body.printing-labels *{visibility:hidden}
+  /* visibility:hidden above still leaves every hidden element occupying its
+     normal layout height, so the browser was paginating the full height of
+     header+main (the Labels/QR view's own controls included) as blank
+     pages after the one real label - "1 label + 3 blank pages"
+     (2026-09-01, confirmed via a real Playwright measurement: header+main
+     were still ~280px tall combined under visibility:hidden alone, vs.
+     the label's own ~120px page height - 280/120 rounds up to almost
+     exactly 3 extra blank pages, matching what was reported). #printArea
+     is absolutely positioned so it never contributed to that height
+     itself - the fix is to also collapse every OTHER top-level element's
+     box entirely for print, not just make it invisible. Needs
+     !important: showLoginScreen() sets an inline `style.display` on
+     #loginScreen (another top-level body child), and an inline style
+     always wins over a plain stylesheet rule regardless of selector
+     specificity - confirmed this exact element resisted a first,
+     non-!important version of this rule when testing pre-login (its
+     display:none right now, but the mechanism generalizes to any future
+     top-level element that ever gets an inline display style).
+     :not(#printArea) keeps #printArea itself out of this blanket rule
+     instead of relying on an ID selector to out-specificity a class
+     selector below. */
+  body.printing-labels > *:not(#printArea){display:none!important}
   body.printing-labels #printArea, body.printing-labels #printArea *{visibility:visible}
   body.printing-labels #printArea{display:block;position:absolute;left:0;top:0;width:100%}
   body.printing-labels .print-label{page-break-after:always;break-after:page;width:100%;height:100vh;margin:0}
