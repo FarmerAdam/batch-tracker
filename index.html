@@ -9,6 +9,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800&family=IBM+Plex+Mono:wght@500&family=Oswald:wght@500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
 <style>
 :root{
   --bg:#E8E2D5; --card:#FFFFFF; --ink:#2A241B; --muted:#7A7264; --line:#E4DFD3;
@@ -572,6 +573,7 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
     <span id="hdrLogo" class="hdr-logo"></span>
     <h1 id="hdrName">Markwood Batch Tracker</h1>
     <div class="sync" id="sync"><span class="dot-wrap"><span class="dot"></span></span><span id="syncText">Loading…</span></div>
+    <button class="hdr-gear" id="hdrScan" onclick="openScanModal()" title="Scan a block's QR code" aria-label="Scan QR code">📷</button>
     <button class="hdr-gear" id="hdrGear" onclick="openPrefs()" title="Appearance & settings" aria-label="Settings">⚙</button>
   </div>
   <nav>
@@ -820,6 +822,19 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
     <div class="qrbox" id="qr_box" style="display:flex;justify-content:center"></div>
     <div class="sub" style="margin-top:10px;word-break:break-all" id="qr_url"></div>
     <div class="actions"><button class="btn" onclick="closeModal('qrModal')">Close</button></div>
+  </div>
+</div>
+
+<!-- SCAN MODAL (2026-09-01, Adam's ask for today's block audit) -->
+<div class="modal-bg" id="scanModal">
+  <div class="modal" style="text-align:center">
+    <h3>Scan a block</h3>
+    <div class="sub" id="scan_status" style="margin-bottom:14px">Requesting camera…</div>
+    <div style="position:relative;border-radius:var(--radius);overflow:hidden;background:#000;aspect-ratio:1">
+      <video id="scan_video" playsinline muted style="width:100%;height:100%;object-fit:cover"></video>
+    </div>
+    <canvas id="scan_canvas" style="display:none"></canvas>
+    <div class="actions" style="margin-top:14px"><button class="btn" onclick="closeScanModal()">Cancel</button></div>
   </div>
 </div>
 
@@ -1445,6 +1460,71 @@ function routeFromURL(push){
   showView("pipeline", push);
 }
 
+/* ===== QR scan (2026-09-01, Adam's ask for a block audit) - live camera
+   feed + jsQR decoding a label's own QR content, which is always
+   `location.origin+location.pathname+"?batch="+batch_no` (see labelHTML).
+   Reuses routeFromURL's exact batch-lookup logic (by batch_no, falling
+   back to id) instead of re-implementing it, so scanning a label behaves
+   identically to opening its printed URL directly - including the "not
+   found" case, which silently lands on Pipeline either way, same as
+   typing a stale ?batch= by hand already does. ===== */
+let scanStream=null, scanRAF=null;
+async function openScanModal(){
+  openModal("scanModal");
+  $("scan_status").textContent="Requesting camera…";
+  if(!navigator.mediaDevices?.getUserMedia){
+    $("scan_status").textContent="This browser can't access the camera - try a recent Chrome/Safari on the phone you're auditing with.";
+    return;
+  }
+  try{
+    // environment = rear camera, the one actually pointed at a shelf label.
+    scanStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"}}});
+  }catch(e){
+    $("scan_status").textContent="Couldn't access the camera - check the browser has camera permission for this site and try again.";
+    return;
+  }
+  const video=$("scan_video");
+  video.srcObject=scanStream;
+  await video.play();
+  $("scan_status").textContent="Point the camera at a label's QR code…";
+  scanLoop();
+}
+function closeScanModal(){
+  closeModal("scanModal");
+  if(scanRAF){ cancelAnimationFrame(scanRAF); scanRAF=null; }
+  if(scanStream){ scanStream.getTracks().forEach(t=>t.stop()); scanStream=null; }
+}
+function scanLoop(){
+  if(!scanStream) return; // modal closed mid-loop - stop, don't reschedule
+  const video=$("scan_video"), canvas=$("scan_canvas");
+  if(video.readyState===video.HAVE_ENOUGH_DATA){
+    canvas.width=video.videoWidth; canvas.height=video.videoHeight;
+    const ctx=canvas.getContext("2d",{willReadFrequently:true});
+    ctx.drawImage(video,0,0,canvas.width,canvas.height);
+    const img=ctx.getImageData(0,0,canvas.width,canvas.height);
+    const code=jsQR(img.data,img.width,img.height);
+    if(code){ handleScanResult(code.data); return; }
+  }
+  scanRAF=requestAnimationFrame(scanLoop);
+}
+function handleScanResult(text){
+  let url=null; try{ url=new URL(text,location.href); }catch(e){}
+  const batchParam=url?url.searchParams.get("batch"):null;
+  if(!batchParam){
+    // Not one of our own labels - keep scanning rather than dead-ending
+    // the modal on a stray QR code someone's phone camera happened to
+    // catch mid-audit.
+    $("scan_status").textContent="That's not one of our batch labels - try again.";
+    scanRAF=requestAnimationFrame(scanLoop);
+    return;
+  }
+  closeScanModal();
+  const qs=new URLSearchParams(location.search);
+  qs.set("batch",batchParam);
+  history.pushState({},"",location.pathname+"?"+qs.toString());
+  routeFromURL(false);
+}
+
 /* ================= RENDER: PIPELINE ================= */
 /* When a batch is marked ready to fruit, its still-incubating blocks are shown as
    "ready" (purple) everywhere blocks are visualised, without changing the underlying count. */
@@ -1833,7 +1913,15 @@ async function deleteLog(type,id){
 let modalBatchId=null;
 function openModal(id){ $(id).classList.add("open"); }
 function closeModal(id){ $(id).classList.remove("open"); }
-document.querySelectorAll(".modal-bg").forEach(m=>m.addEventListener("click",e=>{ if(e.target===m) m.classList.remove("open"); }));
+document.querySelectorAll(".modal-bg").forEach(m=>m.addEventListener("click",e=>{
+  if(e.target!==m) return;
+  // scanModal holds a live camera stream - a bare classList.remove (every
+  // other modal's backdrop-tap behavior) would leave the camera running
+  // in the background instead of releasing it, so it gets its own real
+  // close path instead of falling through to the generic one below.
+  if(m.id==="scanModal"){ closeScanModal(); return; }
+  m.classList.remove("open");
+}));
 
 function openMove(batchId){
   modalBatchId=batchId;
@@ -2817,11 +2905,21 @@ async function seedRoom(){
 
 const LBL_SIZES={munbyn:{w:216,h:120},s:{w:227,h:113},m:{w:302,h:151},l:{w:378,h:189}}; /* px at 96dpi */
 let labelCfg={size:"munbyn",copies:1,logo:null,logoScale:100,fields:{species:false,scientific:false,inoc:true,spawn:true,substrate:false}};
+// Flat $/block for the "packed" state (2026-09-01, Adam's ask) - grow kits
+// are sold as a whole unit, not by weight, so there's no dryKg/yield to
+// price against the way Wholesale/Retail $/kg work for harvested species.
+// One global rate rather than per-species (Adam's own framing: "$45 per
+// block"), same key-value mn_settings pattern as block_water/labelcfg -
+// no schema change needed, just a new settings key. Defaults to 45 so
+// Analytics' Packed Revenue column works immediately without Adam having
+// to configure anything first; editable in Costs (see packedPricePanelHTML).
+let PACKED_PRICE_PER_BLOCK = 45;
 
 async function loadSettings(){
   try{ const ls=JSON.parse(localStorage.getItem("mn_labelcfg")); if(ls) labelCfg={...labelCfg,...ls,fields:{...labelCfg.fields,...(ls.fields||{})}}; }catch(e){}
   try{ const bw=JSON.parse(localStorage.getItem("mn_blockwater")); if(bw) applyBlockWaterConfig(bw); }catch(e){}
   try{ const co=JSON.parse(localStorage.getItem("mn_costorder")); if(Array.isArray(co)) costSpeciesOrder=co; }catch(e){}
+  try{ const pp=parseFloat(localStorage.getItem("mn_packedprice")); if(pp>0) PACKED_PRICE_PER_BLOCK=pp; }catch(e){}
   try{
     const {data,error}=await db.from("mn_settings").select("*");
     if(!error&&data) for(const r of data){
@@ -2829,10 +2927,19 @@ async function loadSettings(){
       if(r.key==="logo") labelCfg.logo=r.value;
       if(r.key==="block_water"){ try{ applyBlockWaterConfig(JSON.parse(r.value)); }catch(e){} }
       if(r.key==="cost_species_order"){ try{ const v=JSON.parse(r.value); if(Array.isArray(v)) costSpeciesOrder=v; }catch(e){} }
+      if(r.key==="packed_price_block"){ const v=parseFloat(r.value); if(v>0) PACKED_PRICE_PER_BLOCK=v; }
     }
   }catch(e){ console.warn("mn_settings table not found — label settings will only stick on this device.",e); }
   renderCosts(); renderAnalytics();
   if($("view-batch")?.classList.contains("active")) renderBatch();
+}
+async function savePackedPrice(){
+  const v=parseFloat($("packedPriceInput").value);
+  if(!(v>0)){ alert("Enter a $/block value greater than 0."); return; }
+  PACKED_PRICE_PER_BLOCK=v;
+  try{ localStorage.setItem("mn_packedprice",String(v)); }catch(e){}
+  await write(db.from("mn_settings").upsert({key:"packed_price_block",value:String(v)},{onConflict:"key"}),"Couldn't save packed price");
+  renderAnalytics();
 }
 /* Block-size → water(L) config used to back out dry substrate weight for costing/efficiency. */
 function applyBlockWaterConfig(map){
@@ -3043,7 +3150,7 @@ function renderAnalytics(){
     (bySpecies[k]=bySpecies[k]||[]).push(b);
   }
   const rows=Object.entries(bySpecies).map(([sp,bs])=>{
-    let inoc=0,toFruit=0,contam=0,failed=0,culled=0,yld=0,subKg=0,totalCost=0,costKnown=false,weightMissing=false;
+    let inoc=0,toFruit=0,contam=0,failed=0,culled=0,packed=0,yld=0,subKg=0,totalCost=0,costKnown=false,weightMissing=false;
     let fruitedDenom=0;
     let fruitDays=[],completeDays=[],readyDays=[],harvestGapDays=[];
     for(const b of bs){
@@ -3063,6 +3170,7 @@ function renderAnalytics(){
         if(m.to_state==="contaminated") contam+=m.count;
         if(m.to_state==="failed") failed+=m.count;
         if(m.to_state==="culled") culled+=m.count;
+        if(m.to_state==="packed") packed+=m.count;
         if(m.to_state==="complete") completeDays.push({d:daysBetween(b.inoc_date,m.move_date),w:m.count});
       }
       const ff=firstMoveTo(b,"fruiting");
@@ -3094,7 +3202,8 @@ function renderAnalytics(){
       const differs = lo<yd.days_to_harvest_low-1 || hi>(yd.days_to_harvest_high??yd.days_to_harvest_low)+1;
       if(differs) harvestSuggestion={lo,hi,n:harvestGapN,configuredLo:yd.days_to_harvest_low,configuredHi:yd.days_to_harvest_high??yd.days_to_harvest_low};
     }
-    return {sp,batches:bs.length,inoc,toFruit,contam,failed,yld,subKg,
+    return {sp,batches:bs.length,inoc,toFruit,contam,failed,packed,yld,subKg,
+      packedRevenue:packed*PACKED_PRICE_PER_BLOCK,
       pctFruit:inoc?Math.round(toFruit/inoc*100):0, pctContam:inoc?Math.round(contam/inoc*100):0,
       pctFailed:inoc?Math.round(failed/inoc*100):0,
       avgFruit:avg(fruitDays), avgComplete:wavg(completeDays), avgReady:avg(readyDays), readyCount:readyDays.length,
@@ -3113,15 +3222,16 @@ function renderAnalytics(){
   // per-batch diagnostic detail only renders when explicitly opened up.
   const bd=analyticsShowBreakdown;
   $("analyticsWrap").innerHTML=`<div class="tablewrap"><table>
-    <tr><th></th><th>Species</th><th>Batches</th><th>Blocks inoc</th><th>→ Fruiting</th><th>Contam</th><th>No colonise</th><th>Total yield</th>
+    <tr><th></th><th>Species</th><th>Batches</th><th>Blocks inoc</th><th>→ Fruiting</th><th>Contam</th><th>No colonise</th><th>Packed${infoDot("Blocks marked 'Packed / Ready for Sale' - grow kits sold whole, not harvested here. Kept separate from Total yield/Cost per kg below, which are computed from real logged harvest weight.")}</th><th>Total yield</th>
         ${bd?`<th>Avg days → fruit</th><th>Fruiting → harvest (actual)${infoDot("Real observed time from first move-to-fruiting to first harvest logged — learns as you log more harvests")}</th><th>Avg days → ready${infoDot("Manually logged 'ready to fruit' date, independent of when blocks are physically moved to the fruiting chamber")}</th><th>Avg days → done</th><th>Dry substrate${infoDot("Dry substrate weight — water backed out of the finished block weight")}</th><th>g / fruited block${infoDot(completed?"Yield ÷ blocks that reached fruiting and have since finished their cycle":"Yield ÷ every block ever moved to fruiting, including ones still fruiting now")}</th><th>Yield/kg sub</th><th>Efficiency${infoDot("Biological efficiency — fresh yield ÷ dry substrate weight")}</th>`:""}
-        <th>Cost / kg</th><th>Wholesale $/kg</th><th>Wholesale margin</th><th>Retail $/kg</th><th>Retail margin</th></tr>
+        <th>Cost / kg</th><th>Wholesale $/kg</th><th>Wholesale margin</th><th>Retail $/kg</th><th>Retail margin</th><th>Packed Revenue${infoDot(`Packed blocks × the flat $${PACKED_PRICE_PER_BLOCK}/block rate set in Costs - not a per-kg figure like the columns to its left, and not counted in Cost/kg or margin above.`)}</th></tr>
     ${rows.map(r=>{const spEsc=esc(r.sp).replace(/'/g,"\\'");return `<tr ondragover="speciesDragOver(event)" ondrop="speciesDrop(event,'${spEsc}')">
       <td style="text-align:center"><span class="drag-handle" draggable="true" title="Drag to reorder" ondragstart="speciesDragStart(event,'${spEsc}')" ondragend="speciesDragEnd(event)">&#9776;</span></td>
       <td><b>${esc(r.sp)}</b>${r.weightMissing?' <span title="Some batches have no block weight set — cost/efficiency may be understated" style="color:var(--st-failed)">*</span>':""}</td><td>${r.batches}</td><td>${r.inoc}</td>
       <td>${r.toFruit} (${r.pctFruit}%)</td>
       <td>${r.contam?`${r.contam} (${r.pctContam}%)`:"0"}</td>
       <td>${r.failed?`${r.failed} (${r.pctFailed}%)`:"0"}</td>
+      <td>${r.packed||"0"}</td>
       <td>${fmtWeight(r.yld)}</td>
       ${bd?`<td>${r.avgFruit??"—"}</td>
       <td>${r.avgHarvestGap!=null?r.avgHarvestGap+` days (n=${r.harvestGapN})`:"—"}${r.harvestSuggestion?`<div style="margin-top:4px"><button class="btn btn-sm btn-primary" title="Chef Orders is currently set to ${r.harvestSuggestion.configuredLo}–${r.harvestSuggestion.configuredHi} days" onclick="applyHarvestSuggestion('${spEsc}',${r.harvestSuggestion.lo},${r.harvestSuggestion.hi})">Update to ${r.harvestSuggestion.lo}–${r.harvestSuggestion.hi}d?</button></div>`:""}</td>
@@ -3136,12 +3246,25 @@ function renderAnalytics(){
       <td class="${r.margin==null?"":r.margin<0?"neg":"pos"}">${r.margin!=null?money(r.margin):"—"}</td>
       <td>${r.retail!=null?money(r.retail):"—"}</td>
       <td class="${r.retailMargin==null?"":r.retailMargin<0?"neg":"pos"}">${r.retailMargin!=null?money(r.retailMargin):"—"}</td>
+      <td>${r.packed?money(r.packedRevenue):"—"}</td>
     </tr>`;}).join("")}
   </table></div>${anyMissing?infoBannerHTML("analyticsWeightMissing", `* Some batches don't have block weights recorded, so their substrate cost isn't counted — those species' cost/kg and efficiency are understated until you edit the batch and add block sizes.`, "margin-top:12px"):""}
   ${infoBannerHTML("analyticsHarvestLearning", `"Fruiting → harvest (actual)" learns from your own data — once at least 3 harvests are logged for a species and the real timing meaningfully differs from what's configured in Chef Orders, you'll see an "Update to Xd?" button here. Nothing changes automatically; it's a suggestion you approve.`, "margin-top:12px")}`;
 }
 
 /* ================= COSTS ================= */
+function packedPricePanelHTML(){
+  return `<div class="tablewrap" style="margin-top:28px"><table class="costs-table">
+    <tr><th>Packed / Ready for Sale</th><th></th></tr>
+    <tr>
+      <td>$/block <span style="color:var(--muted);font-size:12px">— flat rate for grow kits, all species (see Analytics' Packed Revenue column)</span></td>
+      <td style="display:flex;gap:8px;align-items:center">
+        <input type="number" step="1" min="0" id="packedPriceInput" value="${PACKED_PRICE_PER_BLOCK}" style="max-width:120px">
+        <button class="btn btn-sm btn-primary" onclick="savePackedPrice()">Save</button>
+      </td>
+    </tr>
+  </table></div>`;
+}
 function blockWaterPanelHTML(){
   return `<div class="tablewrap" style="margin-top:28px"><table class="costs-table">
     <tr><th>Block size (kg, hydrated)</th><th>Water added (L)</th><th>Dry weight</th><th></th></tr>
@@ -3163,7 +3286,7 @@ function blockWaterPanelHTML(){
 function renderCosts(){
   const species=orderedCostSpecies();
   const sizes=Object.keys(BLOCK_WATER_L).map(Number).sort((a,b)=>b-a);
-  if(!species.length){ $("costsWrap").innerHTML=`<div class="empty">Create a batch first — its species will show up here.</div>`+blockWaterPanelHTML(); return; }
+  if(!species.length){ $("costsWrap").innerHTML=`<div class="empty">Create a batch first — its species will show up here.</div>`+packedPricePanelHTML()+blockWaterPanelHTML(); return; }
   $("costsWrap").innerHTML=`<div class="tablewrap"><table class="costs-table">
     <tr><th></th><th>Species</th><th>Substrate $/kg</th><th>Spawn $/block</th><th>Bag $/block</th><th>Other $/block</th>${sizes.map(s=>`<th>${s%1?s.toFixed(1):s}kg block</th>`).join("")}<th>Wholesale $/kg</th><th>Retail $/kg</th><th></th></tr>
     ${species.map((sp,i)=>{
@@ -3186,6 +3309,7 @@ function renderCosts(){
       </tr>`;}).join("")}
   </table></div>
   ${infoBannerHTML("costsBottom", `Substrate is entered <b>per kg dry</b> so it scales with block size automatically. Spawn, bag and other (power, labour) are <b>per block</b>. The block columns above show what each configured finished block size costs you — substrate is charged on the <b>dry weight</b> only, with water backed out since well water costs next to nothing. <b>Retail $/kg</b> is a target price for market sales (not yet tied to actual transactions) so you can sanity-check retail markup against wholesale. Drag the &#9776; handle to reorder species — e.g. group cheaper ones together. The order is shared with the Analytics tab.`, "margin-top:12px")}
+  ${packedPricePanelHTML()}
   ${blockWaterPanelHTML()}`;
 }
 async function saveCost(sp,sid){
