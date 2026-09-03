@@ -578,7 +578,7 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
   </div>
   <nav>
     <button data-view="pipeline" class="active">Pipeline</button>
-    <button data-view="room">Room</button>
+    <button data-view="room">Rooms</button>
     <button data-view="analytics">Analytics</button>
     <button data-view="costs">Costs</button>
     <button data-view="qr">Labels</button>
@@ -629,7 +629,7 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
     <button class="btn btn-sm" onclick="showView('room')">← Back to room</button>
     <h2 style="font-size:22px">Room setup</h2>
   </div>
-  <div class="note-banner">Build your room: add zones (walls / centre island), then bays. Each bay's rows become letters (A, B, C…) and slots run left to right. Edit any number any time — existing placements stay put.</div>
+  <div class="note-banner">Add a room for each physical grow space — FC1, Shiitake Chamber, Oyster Room, whatever matches how you actually think about your farm. Split a room into sections (Wall 1, Wall 2, Centre island) if that's useful too - a "room" here is really just a named group of bays, so it works either way. Then add bays to each. Each bay's rows become letters (A, B, C…) and slots run left to right. Edit any number any time — existing placements stay put.</div>
   <div id="setupWrap"></div>
   <div id="setupActions" style="margin-top:14px"></div>
 </section>
@@ -2208,7 +2208,7 @@ function renderRoom(){
   document.getElementById("view-room").className="view"+(document.getElementById("view-room").classList.contains("active")?" active":"");
   const wrap=$("roomWrap");
   if(!zones.length){
-    wrap.innerHTML=`<div class="empty">No room set up yet.<br><br><button class="btn btn-primary" onclick="seedRoom()">Build my room automatically</button> &nbsp; or <button class="btn" onclick="openRoomSetup()">set up manually</button><br><br><span style="font-size:13px">The auto-build creates your 2 walls (3 bays × 9 rows × 6) and centre island (5 rows × 24). Editable after.</span></div>`;
+    wrap.innerHTML=`<div class="empty">No rooms set up yet.<br><br><button class="btn btn-primary" onclick="seedRoom()">Build a starter room automatically</button> &nbsp; or <button class="btn" onclick="openRoomSetup()">set up manually</button><br><br><span style="font-size:13px">The auto-build creates one room with 2 walls (3 bays × 9 rows × 6) and a centre island (5 rows × 24) - a starting point, not the only room you can have. Add more rooms any time in Room setup, and everything's editable after.</span></div>`;
     $("roomStats").innerHTML=""; $("placeBanner").innerHTML=""; return;
   }
   secondFlushGapData=computeSecondFlushGaps();
@@ -2798,6 +2798,19 @@ async function rearrangeDrop(e,targetCode){
 }
 
 /* ===== Room setup ===== */
+/* User-facing copy says "room" (2026-09-04, Adam's ask: multiple named
+   grow rooms - FC1/FC2, Shiitake Chamber/Oyster Room) - internal names
+   (mn_zones table, zoneHTML, addZone/saveZone/deleteZone, .zone CSS
+   classes) deliberately still say "zone" throughout, left untouched.
+   This was already fully supported by the existing data model (a "zone"
+   is just a freely-named group of bays, no code change needed there) -
+   the only real gap was that every user-facing string framed it as "one
+   room split into zones" (walls/centre island) rather than "however
+   many independent rooms you want", which didn't match how Adam
+   actually thinks about the farm. Renaming the internal identifiers
+   too would be needless churn for a copy-only fix - see this session's
+   MMAVIS rebrand for the same reasoning (rename what's shown, not
+   what's plumbing). */
 function openRoomSetup(){
   roomSetupEditing=false;
   renderSetup();
@@ -2809,8 +2822,8 @@ function renderSetup(){
   const wrap=$("setupWrap");
   const actions=$("setupActions");
   if(!zones.length){
-    wrap.innerHTML=`<div class="empty">No zones yet. Add one below, or <button class="btn btn-sm" onclick="seedRoom()">auto-build my room</button>.</div>`;
-    if(actions) actions.innerHTML=`<button class="btn btn-primary" onclick="addZone()">＋ Add zone</button>`;
+    wrap.innerHTML=`<div class="empty">No rooms yet. Add one below, or <button class="btn btn-sm" onclick="seedRoom()">auto-build a starter room</button>.</div>`;
+    if(actions) actions.innerHTML=`<button class="btn btn-primary" onclick="addZone()">＋ Add room</button>`;
     return;
   }
   if(!roomSetupEditing){
@@ -2832,10 +2845,10 @@ function renderSetup(){
     const zb=baysOf(z);
     return `<div class="setup-zone">
       <div class="zrow">
-        <div><label>Zone name</label><input id="z_name_${z.id}" value="${esc(z.name)}"></div>
+        <div><label>Room name</label><input id="z_name_${z.id}" value="${esc(z.name)}"></div>
         <div><label>Block weight (kg)</label><input type="number" step="0.1" id="z_kg_${z.id}" value="${z.block_kg??""}" placeholder="e.g. 4.5"></div>
         <button class="btn btn-sm" onclick="saveZone('${z.id}')">Save</button>
-        <button class="btn btn-sm btn-danger" onclick="deleteZone('${z.id}')">Delete zone</button>
+        <button class="btn btn-sm btn-danger" onclick="deleteZone('${z.id}')">Delete room</button>
       </div>
       ${zb.map(bay=>`
         <div class="setup-bay">
@@ -2849,21 +2862,21 @@ function renderSetup(){
       <button class="btn btn-sm" style="margin-top:6px" onclick="addBay('${z.id}')">＋ Add bay to ${esc(z.name)}</button>
     </div>`;
   }).join("");
-  if(actions) actions.innerHTML=`<button class="btn btn-primary" onclick="addZone()">＋ Add zone</button> <button class="btn btn-sm" onclick="finishRoomEdit()">Done editing</button>`;
+  if(actions) actions.innerHTML=`<button class="btn btn-primary" onclick="addZone()">＋ Add room</button> <button class="btn btn-sm" onclick="finishRoomEdit()">Done editing</button>`;
 }
 async function addZone(){
   const n=zones.length;
   roomSetupEditing=true;
-  await write(db.from("mn_zones").insert({name:"New zone",sort_order:n}),"Couldn't add zone");
+  await write(db.from("mn_zones").insert({name:"New room",sort_order:n}),"Couldn't add room");
   renderSetup();
 }
 async function saveZone(id){
-  await write(db.from("mn_zones").update({name:$("z_name_"+id).value.trim()||"Zone",block_kg:parseFloat($("z_kg_"+id).value)||null}).eq("id",id),"Couldn't save zone");
+  await write(db.from("mn_zones").update({name:$("z_name_"+id).value.trim()||"Room",block_kg:parseFloat($("z_kg_"+id).value)||null}).eq("id",id),"Couldn't save room");
   renderSetup();
 }
 async function deleteZone(id){
-  if(!confirm("Delete this zone and all its bays? Any placements in it will be cleared.")) return;
-  await write(db.from("mn_zones").delete().eq("id",id),"Couldn't delete zone");
+  if(!confirm("Delete this room and all its bays? Any placements in it will be cleared.")) return;
+  await write(db.from("mn_zones").delete().eq("id",id),"Couldn't delete room");
   renderSetup();
 }
 async function addBay(zoneId){
