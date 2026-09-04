@@ -20,10 +20,11 @@ You are helping a grower (who may have no coding background) self-host their
 own copy of "Batch Tracker," a single-page web app (`index.html`) backed by
 Supabase (hosted Postgres + auth + REST API). The repo includes `setup.html`
 - a self-contained setup wizard the grower opens directly in their browser
-(double-click the file, or open it once they've deployed). It walks through
-the same 5 steps below, copies the schema SQL for them with one click, and
-live-tests their Project URL/anon key before generating `config.js` for
-download - **tell them to open it and use that as the default path**. It
+(double-click the file, or open it once they've deployed), with its own 5
+steps covering everything Step 3 below does. It copies the schema SQL for
+them with one click and live-tests their Project URL/anon key before
+generating `config.js` for download - **tell them to open it and use that
+as the default path**. It
 can't do the GitHub/Supabase account and dashboard parts (those need
 interactive sign-in), which is where you come in - walk them through those,
 and through `setup.html`'s own steps as they go. If they'd rather not open a
@@ -67,8 +68,10 @@ Tell the grower to:
 ### Step 3 - Push the schema and connect your project
 
 **Default: open `setup.html`** at
-`https://THEIR-USERNAME.github.io/batch-tracker/setup.html` (from Step 2.3
-above) - or by double-clicking the local file if they skipped that step. It
+`https://THEIR-USERNAME.github.io/THEIR-REPO-NAME/setup.html` (the repo name
+is whatever they picked in Step 2.2 - "batch-tracker" if they kept the
+default, something else if they renamed it) - or by double-clicking the
+local file if they skipped Step 2.3. It
 walks through pushing the schema and connecting the project itself, with a
 live "Test connection" check before it lets them download `config.js` - talk
 them through its on-page steps as they go, using the details below only if
@@ -87,11 +90,15 @@ things for anyone comfortable running one terminal command.
    finish in a second or two with a "Success" message. This creates every
    table, index, and security rule the app needs, in one go. It's safe to
    run more than once if they're not sure it worked the first time.
-4. In the Supabase dashboard: **Project Settings -> API**. They'll need two
-   values off this page: the **Project URL** (looks like
-   `https://xxxxxxxx.supabase.co`) and the **anon public** key (a long
-   string - there's also a `service_role`/`secret` key on the same page,
-   **do not use that one**, see troubleshooting below).
+4. In the Supabase dashboard, get to the API keys page: click the **⚙
+   Settings** icon near the bottom of the left sidebar, then **API Keys**
+   (some projects just call it **API** - same page). Near the top is the
+   **Project URL** (looks like `https://xxxxxxxx.supabase.co`). Below that
+   is a list of keys - they want the one labeled **"Publishable key"**
+   (`sb_publishable_...`) or, on older projects, **"anon" / "public"** (a
+   long string starting `eyJ...`). There's also a **"Secret key"**
+   (`sb_secret_...`) or **"service_role"** key on the same page - **do not
+   use that one**, see troubleshooting below.
 5. Create `config.js` with those two values filled in. Two ways to do this,
    pick whichever fits how the grower is working:
    - **Entirely in the browser (no local files at all)**: on their new
@@ -124,7 +131,7 @@ they cause confusion later.
    npm run setup
    ```
 3. It asks for the same Project URL / anon key as Option A, plus a database
-   connection string (Project Settings -> Database -> Connection string ->
+   connection string (Settings (gear icon) -> Database -> Connection string ->
    URI) so it can run the schema push itself instead of the grower pasting
    into the SQL Editor - remind them to swap in their real password where it
    says `[YOUR-PASSWORD]`.
@@ -176,7 +183,8 @@ described here.
 
 ### Step 6 - Confirm it's live
 
-Visit `https://THEIR-USERNAME.github.io/batch-tracker/`. They should see a
+Visit `https://THEIR-USERNAME.github.io/THEIR-REPO-NAME/` (same repo name as
+Step 3 above). They should see a
 login screen with a generic "Batch Tracker" title (not "Markwood"). Sign in
 with the user from Step 4. That's it - fully self-hosted, on their own
 accounts, at no cost. If they get a blank page or a "Setup incomplete"
@@ -195,17 +203,25 @@ below, which doesn't need a live browser request at that step.
 
 **"config.js is missing" error banner on the page**
 `config.js` doesn't exist yet, or wasn't committed to the live repo. Redo
-Step 3.5 (Option A) - create/commit `config.js` via GitHub's web UI, or run
-`npm run setup` again if using Option B.
+Step 3's "Create config.js" item (Option A) - create/commit it via GitHub's
+web UI, or run `npm run setup` again if using Option B.
 
-**"That looks like a SERVICE ROLE / secret key" error from setup.js (Option
-B), or the site loads but nothing ever seems protected by login**
-The grower pasted the `service_role` key instead of the `anon` key into
-`config.js`. These look similar but are NOT interchangeable: `service_role`
-bypasses all security rules and must never appear in a browser-facing file
-like `config.js`, which anyone visiting the site can read. Go back to
-Project Settings -> API and copy the key specifically labeled "anon" /
-"public," and replace it in `config.js`.
+**"That's a Secret key / service_role key" error, or the site loads but
+nothing ever seems protected by login**
+The grower pasted the "Secret key" (`sb_secret_...`) or legacy
+`service_role` key instead of the publishable/anon one into `config.js`.
+These look similar but are NOT interchangeable: the secret one bypasses all
+security rules and must never appear in a browser-facing file like
+`config.js`, which anyone visiting the site can read. Go back to ⚙ Settings
+→ API Keys and copy the one labeled "Publishable key" (or "anon" / "public"
+on older projects), and replace it in `config.js`.
+
+**Can't find "API Keys" in Settings, or the page looks totally different**
+Supabase renamed and reorganized this page over time - if "API Keys" isn't
+there, look for a plain "API" entry instead; it's the same page either way.
+The exact key labels ("Publishable key" vs "anon") can differ by project
+age too - both work fine here, `setup.html`'s validation accepts either
+format.
 
 **Login works but every page is blank / "permission denied" style errors
 after signing in**
@@ -217,7 +233,7 @@ Editor's own output for the actual Postgres error.
 **Setup script (Option B) fails to connect to the database**
 Almost always the connection string still has the literal text
 `[YOUR-PASSWORD]` in it, or the password is wrong. Get a fresh connection
-string from Project Settings -> Database, and if unsure of the password,
+string from Settings (gear icon) -> Database, and if unsure of the password,
 reset it from that same page (Reset database password) and try again with
 the new one - this doesn't lose any data since the schema hasn't been
 touched by an unrelated app yet.

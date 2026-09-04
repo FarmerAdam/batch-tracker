@@ -44,8 +44,8 @@ async function main() {
   console.log("This talks ONLY to the Supabase project you point it at - never to");
   console.log("the original Markwood project. Have these two things open from your");
   console.log("own Supabase dashboard before you start:\n");
-  console.log("  1. Project Settings -> Database -> Connection string (URI)");
-  console.log("  2. Project Settings -> API -> Project URL + anon public key\n");
+  console.log("  1. Click the gear (Settings) icon in the left sidebar -> Database -> Connection string (URI)");
+  console.log("  2. Same gear icon -> API Keys (sometimes just called API) -> Project URL + Publishable/anon key\n");
 
   const rl = readline.createInterface({ input: stdin, output: stdout });
 
@@ -59,7 +59,7 @@ async function main() {
     fail(
       "reading connection string",
       `That doesn't look like a Postgres connection string (got: "${connStr.slice(0, 40)}...").\n` +
-        "In your Supabase dashboard: Project Settings -> Database -> Connection string -> URI.\n" +
+        "In your Supabase dashboard: Settings (gear icon in the left sidebar) -> Database -> Connection string -> URI.\n" +
         "It should start with postgres:// or postgresql:// and include your database password."
     );
   }
@@ -69,7 +69,7 @@ async function main() {
       "reading connection string",
       "That connection string still has a [YOUR-PASSWORD] placeholder in it.\n" +
         "Replace it with your actual database password (set when you created the project,\n" +
-        "or resettable under Project Settings -> Database -> Reset database password)."
+        "or resettable under Settings (gear icon) -> Database -> Reset database password)."
     );
   }
 
@@ -147,39 +147,42 @@ async function main() {
   await client.end();
 
   // ---------- Step 3: project URL + anon key -> config.js ----------
-  console.log("\nNow the app-side connection (Project Settings -> API in your dashboard):");
-  let projectUrl = await prompt(rl, "Project URL (e.g. https://abcdefgh.supabase.co): ");
+  console.log("\nNow the app-side connection. In your dashboard: click the gear (Settings)");
+  console.log("icon in the left sidebar, then 'API Keys' (some projects just call it 'API').");
+  let projectUrl = await prompt(rl, "Project URL (e.g. https://abcdefgh.supabase.co, near the top of that page): ");
   if (!/^https:\/\/[a-z0-9-]+\.supabase\.co\/?$/.test(projectUrl)) {
     rl.close();
     fail(
       "reading project URL",
       `That doesn't look like a Supabase project URL (got: "${projectUrl}").\n` +
         "It should look like: https://abcdefghijklmnop.supabase.co\n" +
-        "Find it under Project Settings -> API -> Project URL."
+        "Find it under Settings (gear icon) -> API Keys -> Project URL."
     );
   }
   projectUrl = projectUrl.replace(/\/$/, "");
 
-  let anonKey = await prompt(rl, "anon public key: ");
+  let anonKey = await prompt(rl, "Publishable / anon key (labeled 'Publishable key' or 'anon'/'public'): ");
   const looksLikeServiceRoleJwt = isJwt(anonKey) && jwtRole(anonKey) === "service_role";
   if (anonKey.startsWith("sb_secret_") || looksLikeServiceRoleJwt) {
     rl.close();
     fail(
       "reading anon key",
-      "That looks like a SERVICE ROLE / secret key, not the anon public key.\n" +
-        "The service role key bypasses Row Level Security entirely and must never be put\n" +
+      "That looks like a SECRET / service_role key, not the publishable/anon one.\n" +
+        "The secret key bypasses Row Level Security entirely and must never be put\n" +
         "in client-side code (config.js ships to every visitor's browser).\n" +
-        "Go back to Project Settings -> API and copy the key labeled 'anon' / 'public'\n" +
-        "(starts with 'eyJ...' or 'sb_publishable_...'), not 'service_role' / 'secret'."
+        "Go back to Settings (gear icon) -> API Keys and copy the one labeled\n" +
+        "'Publishable key' (starts 'sb_publishable_...') or 'anon'/'public' (starts\n" +
+        "'eyJ...' on older projects) - not 'Secret key' / 'service_role'."
     );
   }
   if (!isJwt(anonKey) && !anonKey.startsWith("sb_publishable_")) {
     rl.close();
     fail(
       "reading anon key",
-      "That doesn't look like a valid Supabase anon key.\n" +
-        "It should either be a long JWT starting with 'eyJ...' (older projects) or start\n" +
-        "with 'sb_publishable_' (newer key format). Copy it again from Project Settings -> API."
+      "That doesn't look like a valid Supabase publishable/anon key.\n" +
+        "It should either be a long JWT starting with 'eyJ...' (older projects, labeled\n" +
+        "'anon'/'public') or start with 'sb_publishable_' (newer projects, labeled\n" +
+        "'Publishable key'). Copy it again from Settings (gear icon) -> API Keys."
     );
   }
 
@@ -267,10 +270,17 @@ async function main() {
   console.log("  1. Open index.html locally (or `python3 -m http.server`) and confirm you can");
   console.log("     see a login screen. Create your first user under Authentication -> Users");
   console.log("     in the Supabase dashboard, then sign in.");
-  console.log("  2. git add -A && git commit -m 'Configure my Supabase project' && git push");
+  console.log("  2. config.js is gitignored on purpose - a plain `git add -A` will silently skip");
+  console.log("     it, which would leave your deployed site stuck on 'Setup incomplete' with no");
+  console.log("     error telling you why. To actually get it onto your deployed site, either:");
+  console.log("       a) git add -f config.js && git add -A && git commit -m 'Configure my Supabase project' && git push");
+  console.log("          (this puts your anon key in your repo's history - fine, it's meant to be");
+  console.log("          public/client-visible, see README's Analytics/License notes), or");
+  console.log("       b) leave it out of git and upload config.js separately through GitHub's web");
+  console.log("          UI (Add file -> Upload files) after pushing everything else.");
   console.log("  3. In your GitHub fork: Settings -> Pages -> Deploy from branch -> main.");
-  console.log("\nconfig.js is gitignored on purpose and will NOT be pushed - that's correct,");
-  console.log("your key lives only in your own deployed copy.\n");
+  console.log("  4. Once Pages finishes building, reload your live site - the 'Setup incomplete'");
+  console.log("     banner should be gone.\n");
 }
 
 function isJwt(s) {
