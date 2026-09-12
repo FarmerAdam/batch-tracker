@@ -1992,7 +1992,7 @@ async function saveMove(){
   if(ok){ closeModal("moveModal"); renderBatch(); }
 }
 
-let harvestSlot=null, editingHarvestId=null;
+let harvestSlot=null, editingHarvestId=null, harvestSaving=false;
 function openHarvest(batchId, slotCode){
   modalBatchId=batchId; harvestSlot=slotCode||null; editingHarvestId=null;
   $("harvestModalTitle").textContent="Log harvest";
@@ -2057,6 +2057,14 @@ async function saveBatchNote(){
 }
 
 async function saveHarvest(){
+  // Real bug found 2026-09-12 (bay4 I-2 ended up with 6 duplicate harvest
+  // rows): write() awaits a full loadAll() round-trip before the modal
+  // closes, and on a slow/rural connection that can take a while with no
+  // obvious feedback beyond the small header sync dot - easy to miss on a
+  // phone in the grow room. Without a guard, each impatient re-tap of Save
+  // fired its own independent insert instead of being blocked. This flag
+  // + disabling the button for the duration closes that gap.
+  if(harvestSaving) return;
   const w=parseFloat($("hv_weight").value);
   if(!w||w<=0){ alert("Enter the harvest weight in grams."); return; }
 
@@ -2098,6 +2106,9 @@ async function saveHarvest(){
     harvest_date:$("hv_date").value||todayISO(),
     weight_g:w, flush:parseInt($("hv_flush").value,10)||null, note:$("hv_note").value.trim()||null,
   };
+  harvestSaving=true;
+  const btn=$("harvestModalSaveBtn"), prevLabel=btn.textContent;
+  btn.disabled=true; btn.textContent="Saving…";
   const ok = editingHarvestId
     ? await write(db.from("mn_harvests").update(payload).eq("id",editingHarvestId),"Couldn't update harvest")
     : await write(db.from("mn_harvests").insert({...payload, batch_id:modalBatchId, slot_code:harvestSlot}),"Couldn't save harvest");
@@ -2105,6 +2116,8 @@ async function saveHarvest(){
     if($("view-room").classList.contains("active")) renderRoom(); else renderBatch();
     harvestSlot=null; editingHarvestId=null;
   }
+  harvestSaving=false;
+  btn.disabled=false; btn.textContent=prevLabel;
 }
 
 /* ================= QR ================= */
