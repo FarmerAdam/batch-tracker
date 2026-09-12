@@ -1395,17 +1395,44 @@ function loadCache(){ try{ const d=JSON.parse(localStorage.getItem("mn_cache"));
 
 const sleep = ms => new Promise(r=>setTimeout(r,ms));
 
+// Supabase/PostgREST caps a plain select() at 1000 rows on this project -
+// past that, extra rows are silently dropped, no error, nothing to show
+// it happened. Real bug found 2026-09-13: mn_harvests had quietly grown
+// past 1000 rows, and since none of these queries specify an .order(),
+// which ~29 rows fell outside that window was undefined - in practice it
+// was exactly the newest ones, including both of bay4's just-logged
+// harvests. That's the actual reason their tiles kept showing no weight
+// through the last two fixes (double-submit guard, sync retry) - those
+// were both real bugs too, but neither one was THIS bug: the rows
+// genuinely weren't in what got fetched, on any device, cache or no
+// cache. mn_placements was one placement away from the same cliff
+// (974/1000) when this was found. Fixed by paging through PAGE_SIZE
+// chunks via .range(), ordered by primary key so pagination stays stable
+// even while rows are being written elsewhere mid-fetch.
+const PAGE_SIZE = 1000;
+async function selectAll(table, orderCol="id", ascending=true){
+  let rows=[], from=0;
+  while(true){
+    const res = await db.from(table).select("*").order(orderCol,{ascending}).range(from, from+PAGE_SIZE-1);
+    if(res.error) return {data:[], error:res.error};
+    rows = rows.concat(res.data);
+    if(res.data.length < PAGE_SIZE) break;
+    from += PAGE_SIZE;
+  }
+  return {data:rows, error:null};
+}
+
 async function loadAllAttempt(){
   const [b,m,h,c,z,ba,pl,yd,bn] = await Promise.all([
-    db.from("mn_batches").select("*").order("batch_no",{ascending:false}),
-    db.from("mn_movements").select("*"),
-    db.from("mn_harvests").select("*"),
-    db.from("mn_costs").select("*"),
-    db.from("mn_zones").select("*").order("sort_order"),
-    db.from("mn_bays").select("*").order("sort_order"),
-    db.from("mn_placements").select("*"),
-    db.from("mn_yield_defaults").select("*"),
-    db.from("mn_batch_notes").select("*")
+    selectAll("mn_batches","batch_no",false),
+    selectAll("mn_movements"),
+    selectAll("mn_harvests"),
+    selectAll("mn_costs"),
+    selectAll("mn_zones","sort_order"),
+    selectAll("mn_bays","sort_order"),
+    selectAll("mn_placements"),
+    selectAll("mn_yield_defaults","species"),
+    selectAll("mn_batch_notes")
   ]);
   if(b.error||m.error||h.error||c.error) throw (b.error||m.error||h.error||c.error);
   batches=b.data; movements=m.data; harvests=h.data; costs=c.data;
