@@ -1393,33 +1393,51 @@ function resolvedBatchCost(b){
 function cache(){ try{ localStorage.setItem("mn_cache", JSON.stringify({batches,movements,harvests,costs,zones,bays,placements,yieldDefaults,batchNotes})); }catch(e){} }
 function loadCache(){ try{ const d=JSON.parse(localStorage.getItem("mn_cache")); if(d){batches=d.batches||[];movements=d.movements||[];harvests=d.harvests||[];costs=d.costs||[];zones=d.zones||[];bays=d.bays||[];placements=d.placements||[];yieldDefaults=d.yieldDefaults||[];batchNotes=d.batchNotes||[];} }catch(e){} }
 
+const sleep = ms => new Promise(r=>setTimeout(r,ms));
+
+async function loadAllAttempt(){
+  const [b,m,h,c,z,ba,pl,yd,bn] = await Promise.all([
+    db.from("mn_batches").select("*").order("batch_no",{ascending:false}),
+    db.from("mn_movements").select("*"),
+    db.from("mn_harvests").select("*"),
+    db.from("mn_costs").select("*"),
+    db.from("mn_zones").select("*").order("sort_order"),
+    db.from("mn_bays").select("*").order("sort_order"),
+    db.from("mn_placements").select("*"),
+    db.from("mn_yield_defaults").select("*"),
+    db.from("mn_batch_notes").select("*")
+  ]);
+  if(b.error||m.error||h.error||c.error) throw (b.error||m.error||h.error||c.error);
+  batches=b.data; movements=m.data; harvests=h.data; costs=c.data;
+  zones=z.error?[]:z.data; bays=ba.error?[]:ba.data; placements=pl.error?[]:pl.data;
+  if(z.error) console.warn("Room tables not found yet — run setup_room.sql.",z.error);
+  yieldDefaults = yd.error ? [] : yd.data;
+  if(yd.error) console.warn("Yield defaults (Chef Orders table) not readable yet — harvest ETA badges will be hidden.",yd.error);
+  batchNotes = bn.error ? [] : bn.data;
+  if(bn.error) console.warn("mn_batch_notes table not found yet — growth/observation notes will be hidden.",bn.error);
+}
+
+// Real incident 2026-09-12: a harvest save succeeded server-side, but the
+// loadAll() that follows it (in write(), below) hit a transient wifi drop
+// and threw - which silently fell back to the pre-harvest localStorage
+// cache, making a real save look like it never happened on-screen. This
+// is one Promise.all of NINE queries, so any single dropped request took
+// the whole refresh down with it. A short retry-with-backoff absorbs a
+// brief farm-wifi blip before giving up and falling back to cache, which
+// is a much more common case here than a genuinely offline device.
+const LOAD_RETRY_DELAYS_MS=[600,1800];
 async function loadAll(){
   setSync("","Syncing…");
-  try{
-    const [b,m,h,c,z,ba,pl,yd,bn] = await Promise.all([
-      db.from("mn_batches").select("*").order("batch_no",{ascending:false}),
-      db.from("mn_movements").select("*"),
-      db.from("mn_harvests").select("*"),
-      db.from("mn_costs").select("*"),
-      db.from("mn_zones").select("*").order("sort_order"),
-      db.from("mn_bays").select("*").order("sort_order"),
-      db.from("mn_placements").select("*"),
-      db.from("mn_yield_defaults").select("*"),
-      db.from("mn_batch_notes").select("*")
-    ]);
-    if(b.error||m.error||h.error||c.error) throw (b.error||m.error||h.error||c.error);
-    batches=b.data; movements=m.data; harvests=h.data; costs=c.data;
-    zones=z.error?[]:z.data; bays=ba.error?[]:ba.data; placements=pl.error?[]:pl.data;
-    if(z.error) console.warn("Room tables not found yet — run setup_room.sql.",z.error);
-    yieldDefaults = yd.error ? [] : yd.data;
-    if(yd.error) console.warn("Yield defaults (Chef Orders table) not readable yet — harvest ETA badges will be hidden.",yd.error);
-    batchNotes = bn.error ? [] : bn.data;
-    if(bn.error) console.warn("mn_batch_notes table not found yet — growth/observation notes will be hidden.",bn.error);
-    cache(); setSync("ok","Synced");
-  }catch(e){
-    console.error(e); loadCache();
-    setSync("bad","Offline — cached data");
+  let lastErr=null;
+  for(let attempt=0; attempt<=LOAD_RETRY_DELAYS_MS.length; attempt++){
+    try{ await loadAllAttempt(); lastErr=null; break; }
+    catch(e){
+      lastErr=e;
+      if(attempt<LOAD_RETRY_DELAYS_MS.length){ setSync("","Retrying…"); await sleep(LOAD_RETRY_DELAYS_MS[attempt]); }
+    }
   }
+  if(lastErr){ console.error(lastErr); loadCache(); setSync("bad","Offline — cached data"); }
+  else { cache(); setSync("ok","Synced"); }
   renderAll();
 }
 
