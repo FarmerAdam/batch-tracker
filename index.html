@@ -213,6 +213,7 @@ main{max-width:1440px;margin:0 auto;padding:16px}
 .btn-primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
 .btn-danger{color:var(--danger);border-color:rgba(var(--danger-rgb),.35)}
 .btn-sm{padding:7px 11px;font-size:13px}
+.second-gen-box{margin-top:10px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--surface-2);font-size:14px}
 .toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:16px}
 .toolbar .spacer{flex:1}
 /* Literal dot-grid button (2026-08-25, Analytics follow-up; de-tiled
@@ -645,19 +646,20 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
     </div>
     <label>Batch name *</label><input id="f_name" placeholder="e.g. Golden Enoki">
     <div class="row2">
-      <div><label>Common name (species) *</label><input id="f_species" list="speciesList" placeholder="e.g. Golden Enoki"></div>
+      <div><label>Common name (species) *</label><input id="f_species" list="speciesList" placeholder="e.g. Golden Enoki" oninput="checkSecondGen()"></div>
       <div><label>Scientific name</label><input id="f_sci" placeholder="e.g. Flammulina velutipes"></div>
     </div>
     <datalist id="speciesList"></datalist>
     <div class="row2">
-      <div><label>Substrate</label><input id="f_substrate" list="subList" placeholder="e.g. Master's mix"></div>
+      <div><label>Substrate</label><input id="f_substrate" list="subList" placeholder="e.g. Master's mix" oninput="checkSecondGen()"></div>
       <div><label>Method</label><input id="f_method" placeholder="e.g. Bags"></div>
     </div>
     <datalist id="subList"></datalist>
     <div class="row2">
-      <div><label>Spawn code</label><input id="f_spawn" placeholder="e.g. FV6924SO31"></div>
+      <div><label>Spawn code</label><input id="f_spawn" placeholder="e.g. FV6924SO31" oninput="checkSecondGen()"></div>
       <div></div>
     </div>
+    <div id="secondGenBox" class="second-gen-box" style="display:none"></div>
     <label>Blocks *</label>
     <div id="staticInfo_blockLines"></div>
     <div id="blockLines"></div>
@@ -1859,6 +1861,7 @@ function openForm(id){
   $("f_method").value=b?.method||"";
   $("f_spawn").value=b?.spawn_code||"";
   $("f_notes").value=b?.notes||"";
+  checkSecondGen();
   // seed block lines
   if(b && blockLines(b)) blockLineState = blockLines(b).map(l=>({count:l.count,kg:l.kg}));
   else if(b && b.blocks_total) blockLineState=[{count:b.blocks_total,kg:""}];
@@ -1913,16 +1916,88 @@ function updateBlockTotal(){
   $("blockTotal").innerHTML=`<b>${blocks}</b> block${blocks===1?"":"s"}${kg>0?` · <b>${kg%1?kg.toFixed(1):kg}</b> kg substrate total`:""}`;
 }
 function cancelForm(){ editingId ? openBatch(editingId) : showView("pipeline"); }
+/* ================= 2ND-GEN SPAWN =================
+   (2026-10-20, Adam's ask.) 2nd-gen grain spawn is already logged as its
+   own batch - wheat berry bags with "2nd Gen" in the spawn code, made from
+   the leftover of that day's bought bag. What wasn't tracked was USING
+   one: when a new batch's spawn code matches unused 2nd-gen bags of the
+   same species, the form offers to take a bag, and saving moves it to
+   Complete on the 2nd-gen batch (note says which batch used it). Bags are
+   opened once and used up, same as bought spawn, so it's whole bags.
+   The new batch's own spawn code gets "2nd Gen" on the end so MAVIS's
+   inventory knows this day didn't open a bought bag
+   (markwood-farm nodes/mavis/capabilities/inventory.py, spawn_sessions). */
+const SECOND_GEN_RE=/2nd\s*gen/i;
+const GRAIN_RE=/wheat|grain|rye|millet|berry|oat/i;
+function normSpawnCode(code){
+  let c=(code||"").toLowerCase().replace(/2nd\s*gen/g,"").replace(/[^a-z0-9]/g,"");
+  return c.startsWith("la")?c.slice(2):c;
+}
+const normSpecies = s => (s||"").toLowerCase().replace(/[^a-z]/g,"");
+function isSecondGenBatch(b){ return SECOND_GEN_RE.test(b.spawn_code||"") && GRAIN_RE.test(b.substrate||""); }
+function secondGenCandidates(species, code){
+  const sp=normSpecies(species), nc=normSpawnCode(code);
+  if(!sp) return [];
+  return batches
+    .filter(b=>!b.archived && isSecondGenBatch(b) && normSpecies(b.species)===sp && batchCounts(b).incubating>0)
+    .filter(b=>!nc || normSpawnCode(b.spawn_code)===nc)
+    .sort((a,b)=>a.inoc_date<b.inoc_date?-1:1);   // oldest first
+}
+let secondGenOffer=null;   // {candidates} while the box is showing
+function checkSecondGen(){
+  const box=$("secondGenBox");
+  const code=$("f_spawn").value.trim();
+  const typed2nd=SECOND_GEN_RE.test(code);
+  const substrate=$("f_substrate").value;
+  // Editing an existing batch never takes a bag (it was taken, or not, when
+  // the batch was first saved), and making MORE 2nd-gen isn't using one.
+  const cands = (editingId || !code || GRAIN_RE.test(substrate)) ? [] : secondGenCandidates($("f_species").value, code);
+  if(!cands.length){
+    secondGenOffer=null;
+    box.style.display = typed2nd && !editingId && code ? "" : "none";
+    box.innerHTML = `<span style="color:var(--muted)">No unused 2nd-gen bags of this species and code are logged — saved as typed.</span>`;
+    return;
+  }
+  const prevChecked = secondGenOffer ? $("sg_use")?.checked : null;
+  secondGenOffer={candidates:cands};
+  const opt = b => { const n=batchCounts(b).incubating;
+    return `#${b.batch_no} ${esc(b.spawn_code)} · made ${fmtDate(b.inoc_date)} · ${n} bag${n===1?"":"s"} left${b.ready_date?` · ready since ${fmtDate(b.ready_date)}`:" · not marked ready"}`; };
+  box.style.display="";
+  box.innerHTML=`<label style="display:flex;gap:8px;align-items:flex-start;margin:0;font-weight:600">
+      <input type="checkbox" id="sg_use" style="width:auto;margin-top:3px" ${(prevChecked ?? typed2nd)?"checked":""}>
+      <span>Using 2nd-gen spawn — take <input type="number" id="sg_count" min="1" value="1" style="width:56px;display:inline-block;padding:4px 6px"> bag(s) from:</span>
+    </label>
+    ${cands.length>1
+      ? `<select id="sg_batch" style="margin-top:6px">${cands.map(b=>`<option value="${b.id}">${opt(b)}</option>`).join("")}</select>`
+      : `<div style="margin:6px 0 0 26px;font-size:13px;color:var(--muted)">${opt(cands[0])}</div><input type="hidden" id="sg_batch" value="${cands[0].id}">`}
+    <div style="margin:6px 0 0 26px;font-size:12px;color:var(--muted)">Untick if this batch came from a bought bag of the same lot.</div>`;
+}
+/* Returns {batch, count} to take, null for none, or false if the form
+   should not save (bad count). */
+function secondGenToTake(){
+  if(!secondGenOffer || !$("sg_use")?.checked) return null;
+  const b=batches.find(x=>x.id===$("sg_batch").value);
+  const n=parseInt($("sg_count").value,10);
+  const left=b?batchCounts(b).incubating:0;
+  if(!b || !(n>=1)){ alert("Enter how many 2nd-gen bags this batch used."); return false; }
+  if(n>left){ alert(`Only ${left} unused bag${left===1?"":"s"} left in #${b.batch_no}.`); return false; }
+  return {batch:b, count:n};
+}
+
 async function saveBatch(){
   const name=$("f_name").value.trim(), species=$("f_species").value.trim();
   const lines=blockLineState.map(l=>({count:parseInt(l.count,10)||0,kg:parseFloat(l.kg)||0})).filter(l=>l.count>0);
   const blocks=lines.reduce((s,l)=>s+l.count,0);
   if(!name||!species){ alert("Batch name and species are required."); return; }
   if(!blocks){ alert("Add at least one block size with a count."); return; }
+  const take = editingId ? null : secondGenToTake();
+  if(take===false) return;
+  let spawnCode=$("f_spawn").value.trim()||null;
+  if(take && !SECOND_GEN_RE.test(spawnCode||"")) spawnCode=(spawnCode?spawnCode+" ":"")+"2nd Gen";
   const rec={
     batch_no:parseInt($("f_no").value,10)||1, name, species,
     scientific:$("f_sci").value.trim()||null, substrate:$("f_substrate").value.trim()||null,
-    method:$("f_method").value.trim()||null, spawn_code:$("f_spawn").value.trim()||null,
+    method:$("f_method").value.trim()||null, spawn_code:spawnCode,
     inoc_date:$("f_date").value||todayISO(), blocks_total:blocks,
     block_sizes:lines.length?lines:null, notes:$("f_notes").value.trim()||null
   };
@@ -1934,6 +2009,16 @@ async function saveBatch(){
   }else{
     const {data,error}=await db.from("mn_batches").insert(rec).select().single();
     if(error){ alert("Couldn't create batch.\n\n"+error.message); return; }
+    if(take){
+      // Bag size from the 2nd-gen batch itself - only one size in practice
+      // (2.8kg), but per-size counts need a kg on the movement row.
+      const sizes=sizesInState(take.batch,"incubating");
+      await write(db.from("mn_movements").insert({
+        batch_id:take.batch.id, move_date:rec.inoc_date, from_state:"incubating", to_state:"complete",
+        count:take.count, kg:sizes.length===1?sizes[0].kg:null,
+        note:`Used as spawn for #${rec.batch_no} ${rec.name}`
+      }),"Batch saved, but couldn't mark the 2nd-gen bag as used — move it to Complete by hand");
+    }
     await loadAll(); openBatch(data.id);
   }
 }
