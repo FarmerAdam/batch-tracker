@@ -1916,17 +1916,17 @@ function updateBlockTotal(){
   $("blockTotal").innerHTML=`<b>${blocks}</b> block${blocks===1?"":"s"}${kg>0?` · <b>${kg%1?kg.toFixed(1):kg}</b> kg substrate total`:""}`;
 }
 function cancelForm(){ editingId ? openBatch(editingId) : showView("pipeline"); }
-/* ================= 2ND-GEN SPAWN =================
-   (2026-10-20, Adam's ask.) 2nd-gen grain spawn is already logged as its
-   own batch - wheat berry bags with "2nd Gen" in the spawn code, made from
-   the leftover of that day's bought bag. What wasn't tracked was USING
-   one: when a new batch's spawn code matches unused 2nd-gen bags of the
-   same species, the form offers to take a bag, and saving moves it to
-   Complete on the 2nd-gen batch (note says which batch used it). Bags are
-   opened once and used up, same as bought spawn, so it's whole bags.
-   The new batch's own spawn code gets "2nd Gen" on the end so MAVIS's
-   inventory knows this day didn't open a bought bag
-   (markwood-farm nodes/mavis/capabilities/inventory.py, spawn_sessions). */
+/* ================= HOMEMADE SPAWN =================
+   (2026-10-20, Adam's ask.) Homemade grain spawn is already logged as its
+   own batch - wheat berry (any grain substrate) bags, either 2nd gen from
+   the leftover of a bought bag or made from liquid culture. What wasn't
+   tracked was USING one: when a new batch's spawn code matches unused
+   homemade bags of the same species, the form offers to take a bag, and
+   saving moves it to Complete on that batch with a "Used as spawn for #N"
+   note. MAVIS's inventory reads that note to know the day didn't open a
+   bought bag (markwood-farm nodes/mavis/capabilities/inventory.py) - the
+   spawn code itself is saved exactly as typed. Bags are opened once and
+   used up, same as bought spawn, so it's whole bags. */
 const SECOND_GEN_RE=/2nd\s*gen/i;
 const GRAIN_RE=/wheat|grain|rye|millet|berry|oat/i;
 function normSpawnCode(code){
@@ -1934,7 +1934,7 @@ function normSpawnCode(code){
   return c.startsWith("la")?c.slice(2):c;
 }
 const normSpecies = s => (s||"").toLowerCase().replace(/[^a-z]/g,"");
-function isSecondGenBatch(b){ return SECOND_GEN_RE.test(b.spawn_code||"") && GRAIN_RE.test(b.substrate||""); }
+function isSecondGenBatch(b){ return GRAIN_RE.test(b.substrate||""); }
 function secondGenCandidates(species, code){
   const sp=normSpecies(species), nc=normSpawnCode(code);
   if(!sp) return [];
@@ -1955,7 +1955,7 @@ function checkSecondGen(){
   if(!cands.length){
     secondGenOffer=null;
     box.style.display = typed2nd && !editingId && code ? "" : "none";
-    box.innerHTML = `<span style="color:var(--muted)">No unused 2nd-gen bags of this species and code are logged — saved as typed.</span>`;
+    box.innerHTML = `<span style="color:var(--muted)">No unused homemade spawn bags of this species and code are logged — saved as typed.</span>`;
     return;
   }
   const prevChecked = secondGenOffer ? $("sg_use")?.checked : null;
@@ -1965,12 +1965,12 @@ function checkSecondGen(){
   box.style.display="";
   box.innerHTML=`<label style="display:flex;gap:8px;align-items:flex-start;margin:0;font-weight:600">
       <input type="checkbox" id="sg_use" style="width:auto;margin-top:3px" ${(prevChecked ?? typed2nd)?"checked":""}>
-      <span>Using 2nd-gen spawn — take <input type="number" id="sg_count" min="1" value="1" style="width:56px;display:inline-block;padding:4px 6px"> bag(s) from:</span>
+      <span>Using homemade spawn — take <input type="number" id="sg_count" min="1" value="1" style="width:56px;display:inline-block;padding:4px 6px"> bag(s) from:</span>
     </label>
     ${cands.length>1
       ? `<select id="sg_batch" style="margin-top:6px">${cands.map(b=>`<option value="${b.id}">${opt(b)}</option>`).join("")}</select>`
       : `<div style="margin:6px 0 0 26px;font-size:13px;color:var(--muted)">${opt(cands[0])}</div><input type="hidden" id="sg_batch" value="${cands[0].id}">`}
-    <div style="margin:6px 0 0 26px;font-size:12px;color:var(--muted)">Untick if this batch came from a bought bag of the same lot.</div>`;
+    <div style="margin:6px 0 0 26px;font-size:12px;color:var(--muted)">Untick if this batch came from a bought bag or liquid culture of the same lot.</div>`;
 }
 /* Returns {batch, count} to take, null for none, or false if the form
    should not save (bad count). */
@@ -1979,7 +1979,7 @@ function secondGenToTake(){
   const b=batches.find(x=>x.id===$("sg_batch").value);
   const n=parseInt($("sg_count").value,10);
   const left=b?batchCounts(b).incubating:0;
-  if(!b || !(n>=1)){ alert("Enter how many 2nd-gen bags this batch used."); return false; }
+  if(!b || !(n>=1)){ alert("Enter how many homemade spawn bags this batch used."); return false; }
   if(n>left){ alert(`Only ${left} unused bag${left===1?"":"s"} left in #${b.batch_no}.`); return false; }
   return {batch:b, count:n};
 }
@@ -1992,8 +1992,7 @@ async function saveBatch(){
   if(!blocks){ alert("Add at least one block size with a count."); return; }
   const take = editingId ? null : secondGenToTake();
   if(take===false) return;
-  let spawnCode=$("f_spawn").value.trim()||null;
-  if(take && !SECOND_GEN_RE.test(spawnCode||"")) spawnCode=(spawnCode?spawnCode+" ":"")+"2nd Gen";
+  const spawnCode=$("f_spawn").value.trim()||null;
   const rec={
     batch_no:parseInt($("f_no").value,10)||1, name, species,
     scientific:$("f_sci").value.trim()||null, substrate:$("f_substrate").value.trim()||null,
@@ -2017,7 +2016,7 @@ async function saveBatch(){
         batch_id:take.batch.id, move_date:rec.inoc_date, from_state:"incubating", to_state:"complete",
         count:take.count, kg:sizes.length===1?sizes[0].kg:null,
         note:`Used as spawn for #${rec.batch_no} ${rec.name}`
-      }),"Batch saved, but couldn't mark the 2nd-gen bag as used — move it to Complete by hand");
+      }),"Batch saved, but couldn't mark the homemade spawn bag as used — move it to Complete by hand");
     }
     await loadAll(); openBatch(data.id);
   }
