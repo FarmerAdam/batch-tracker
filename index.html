@@ -559,7 +559,9 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
   body.printing-labels > *:not(#printArea){display:none!important}
   body.printing-labels #printArea, body.printing-labels #printArea *{visibility:visible}
   body.printing-labels #printArea{display:block;position:absolute;left:0;top:0;width:100%}
-  body.printing-labels .print-label{page-break-after:always;break-after:page;width:100%;height:100vh;margin:0}
+  /* overflow:hidden - a label a hair bigger than the page must clip, not
+     push onto a second sticker */
+  body.printing-labels .print-label{page-break-after:always;break-after:page;width:100%;height:100vh;margin:0;overflow:hidden}
   body.printing-labels .print-label:last-child{page-break-after:auto;break-after:auto}
   body.printing-labels .label{border:1px solid #000;border-radius:1mm;box-shadow:none}
   body{background:#fff}
@@ -713,6 +715,11 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
           <option value="m">Medium (80 × 40 mm)</option>
           <option value="l">Large (100 × 50 mm)</option>
         </select></div>
+      <div><label>Page size &amp; orientation</label>
+        <select id="lb_page" onchange="lblChanged()">
+          <option value="printer">From printer settings (recommended)</option>
+          <option value="app">Force label size</option>
+        </select></div>
       <div><label>Logo size — <span id="lb_logoval">100%</span></label>
         <input type="range" id="lb_logosize" min="40" max="200" step="10" value="100" oninput="$('lb_logoval').textContent=this.value+'%'" onchange="lblChanged()" style="padding:0"></div>
     </div>
@@ -734,7 +741,7 @@ td.neg{color:var(--danger);font-weight:700} td.pos{color:var(--st-complete);font
         <input type="number" id="lb_copies" min="1" value="1" onchange="renderLabels()"></div>
       <button class="btn btn-primary" onclick="printLabels()">🖨 Print</button>
     </div>
-    <div style="margin-top:8px;font-size:13px;color:var(--muted)">The printout puts one label per page, sized to your label stock — so the MUNBYN feeds them one at a time. Set printer margins to None and scale 100%.</div>
+    <div style="margin-top:8px;font-size:13px;color:var(--muted)">The printout puts one label per page, so the MUNBYN feeds them one at a time. Set the label size (2.25 × 1.25 in) and landscape once in the MUNBYN printer preferences in Windows; in the print dialog use margins None and scale 100%.</div>
   </div>
 
   <div class="no-print" style="font-size:13px;color:var(--muted);margin:0 0 8px 2px">Preview</div>
@@ -3059,7 +3066,7 @@ async function seedRoom(){
 
 
 const LBL_SIZES={munbyn:{w:216,h:120},s:{w:227,h:113},m:{w:302,h:151},l:{w:378,h:189}}; /* px at 96dpi */
-let labelCfg={size:"munbyn",copies:1,logo:null,logoScale:100,fields:{species:false,scientific:false,inoc:true,spawn:true,substrate:false}};
+let labelCfg={size:"munbyn",page:"printer",copies:1,logo:null,logoScale:100,fields:{species:false,scientific:false,inoc:true,spawn:true,substrate:false}};
 // Flat $/block for the "packed" state (2026-09-01, Adam's ask) - grow kits
 // are sold as a whole unit, not by weight, so there's no dryKg/yield to
 // price against the way Wholesale/Retail $/kg work for harvested species.
@@ -3188,6 +3195,7 @@ async function persistLabelCfg(){
 }
 function lblChanged(){
   labelCfg.size=$("lb_size").value;
+  labelCfg.page=$("lb_page").value;
   labelCfg.logoScale=parseInt($("lb_logosize").value,10)||100;
   for(const f of ["species","scientific","inoc","spawn","substrate"]) labelCfg.fields[f]=$("lb_f_"+f).checked;
   persistLabelCfg(); renderLabels();
@@ -3231,6 +3239,7 @@ function labelHTML(b){
 }
 function renderLabels(){
   $("lb_size").value=labelCfg.size;
+  $("lb_page").value=labelCfg.page;
   $("lb_logosize").value=labelCfg.logoScale; $("lb_logoval").textContent=labelCfg.logoScale+"%";
   for(const f in labelCfg.fields){ const el=$("lb_f_"+f); if(el) el.checked=labelCfg.fields[f]; }
   $("lb_logoprev").innerHTML = labelCfg.logo
@@ -3271,9 +3280,16 @@ function printLabels(){
   if(!area){ area=document.createElement("div"); area.id="printArea"; document.body.appendChild(area); }
   area.innerHTML = Array.from({length:copies}).map(()=>`<div class="print-label">${labelHTML(b)}</div>`).join("");
   renderLabelQRs(area);
-  // set @page to the exact label size so each label is its own page
+  // "printer" (default): leave page size and orientation to the printer
+  // driver. Forcing a 57x32mm @page made Chrome/Edge on Windows pick the
+  // orientation itself (landscape because width > height), overriding the
+  // MUNBYN driver's own landscape default - the page went out rotated as
+  // 32 wide x 57 long and each label spilled across ~2 stickers
+  // (2026-10-21). "app" keeps the old forced size for other printers.
   let st=$("printPageStyle"); if(!st){ st=document.createElement("style"); st.id="printPageStyle"; document.head.appendChild(st); }
-  st.textContent=`@media print{ @page{ size:${wmm}mm ${hmm}mm; margin:0; } }`;
+  st.textContent = labelCfg.page==="app"
+    ? `@media print{ @page{ size:${wmm}mm ${hmm}mm; margin:0; } }`
+    : `@media print{ @page{ margin:0; } }`;
   document.body.classList.add("printing-labels");
   setTimeout(()=>{ window.print(); }, 60);
 }
