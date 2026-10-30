@@ -2436,6 +2436,15 @@ function renderRoom(){
       }).join("")}
     </div>`;
   }
+  // off-grid placements — slot no longer exists on its bay (resized or
+  // renumbered), so they can't be drawn but still count as occupied.
+  const offGrid=offGridPlacements();
+  if(offGrid.length){
+    pb.innerHTML += `<div class="note-banner" style="border-color:rgba(var(--danger-rgb),.35);background:rgba(var(--danger-rgb),.1);color:var(--danger)">
+      ⚠ ${offGrid.length} block${offGrid.length===1?" is":"s are"} on a slot that isn't on ${offGrid.length===1?"its":"their"} bay any more (the bay was probably resized or renumbered), so ${offGrid.length===1?"it doesn't":"they don't"} show on the shelves but still count as occupied. Nothing is deleted by clearing.
+      ${offGrid.map(o=>{const b=batches.find(x=>x.id===o.batch_id); return `<div style="margin-top:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span class="mono">${esc(o.slot_code)}</span> <b>${esc(b?.name||"?")}</b> <span class="mono">#${b?.batch_no??"?"}</span> · placed ${fmtDate(o.placed_date)}<button class="btn btn-sm" onclick="clearOffGrid('${o.id}')">Clear from shelf</button></div>`;}).join("")}
+    </div>`;
+  }
   // stats
   const s=roomStats();
   $("roomStats").innerHTML=`
@@ -2875,6 +2884,28 @@ async function recoverOrphan(id){
   await write(db.from("mn_placements").update({removed_date:todayISO()}).eq("id",id),"Couldn't clear this block");
   renderRoom();
 }
+/* Active placements with a real-looking code that isn't on any bay's grid
+   any more - left behind when a bay is resized or renumbered (2026-10-31:
+   Bay 7 went from 24 slots/row to 12, stranding B7-C-13/14/15/19 since
+   July - invisible on screen but still counted as occupied by MAVIS and
+   in the yield forecast). bayList defaults to the live bays; saveBay
+   passes a what-if version to warn before a change strands blocks. */
+function slotOnGrid(code, bayList){
+  const c=parseSlotCode(code||"");
+  if(!c) return false;
+  const bay=(bayList||bays).find(b=>b.bay_no===c.bayNo);
+  if(!bay || c.slotNum<1 || c.slotNum>bay.slots_per_row) return false;
+  for(let r=0;r<bay.rows;r++) if(rowLetter(r)===c.letter) return true;
+  return false;
+}
+function offGridPlacements(bayList){
+  return placements.filter(p=>!p.removed_date && /^B\d+-[A-Z]+-\d+$/.test(p.slot_code||"") && !slotOnGrid(p.slot_code, bayList));
+}
+async function clearOffGrid(id){
+  if(!confirm("Clear this block off the shelf? Its slot doesn't exist on the bay any more. Nothing is deleted — batch history and harvests stay intact.")) return;
+  await write(db.from("mn_placements").update({removed_date:todayISO(), removed_note:"Off-grid (slot no longer on its bay)"}).eq("id",id),"Couldn't clear this block");
+  renderRoom();
+}
 /* Two (or more) active placements both sitting on the exact same real slot
    code — placementAt() only ever surfaces the first match, so the rest sit
    invisibly "on" that slot until cleared. This is the "duplicate tiles"
@@ -3055,12 +3086,17 @@ async function addBay(zoneId){
 }
 async function saveBay(id){
   const line=parseInt($("b_line_"+id).value,10);
-  await write(db.from("mn_bays").update({
+  const upd={
     bay_no:parseInt($("b_no_"+id).value,10)||1,
     rows:Math.max(1,parseInt($("b_rows_"+id).value,10)||1),
     slots_per_row:Math.max(1,parseInt($("b_slots_"+id).value,10)||1),
     slots_per_line:line>0?line:null
-  }).eq("id",id),"Couldn't save bay");
+  };
+  // Shrinking or renumbering a bay with blocks on it strands them off-grid.
+  const before=new Set(offGridPlacements().map(p=>p.id));
+  const stranded=offGridPlacements(bays.map(b=>b.id===id?{...b,...upd}:b)).filter(p=>!before.has(p.id));
+  if(stranded.length && !confirm(`${stranded.length} block${stranded.length===1?"":"s"} on this bay (${stranded.map(p=>p.slot_code).sort().join(", ")}) would end up on slots that no longer exist. Clear or move ${stranded.length===1?"it":"them"} first, or save anyway and clear ${stranded.length===1?"it":"them"} from the Room view. Save anyway?`)) return;
+  await write(db.from("mn_bays").update(upd).eq("id",id),"Couldn't save bay");
   renderSetup();
 }
 async function deleteBay(id){
