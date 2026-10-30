@@ -1874,32 +1874,18 @@ function openForm(id){
   else if(b && b.blocks_total) blockLineState=[{count:b.blocks_total,kg:""}];
   else blockLineState=[{count:"",kg:4.5}];
   renderBlockLines();
-  // canonical species list with botanicals — shown as suggestions in the dropdown
-  const KNOWN_SPECIES = [
-    {common:"Snow White Oyster",    sci:"Pleurotus ostreatus"},
-    {common:"Warm White Oyster",    sci:"Pleurotus ostreatus"},
-    {common:"Blue Oyster",          sci:"Pleurotus ostreatus"},
-    {common:"Chocolate Oyster",     sci:"Pleurotus ostreatus"},
-    {common:"Pink Oyster",          sci:"Pleurotus djamor"},
-    {common:"Black-Pearl King Oyster", sci:"Pleurotus eryngii"},
-    {common:"Lion's Mane",          sci:"Hericium erinaceus"},
-    {common:"Coral Tooth",          sci:"Hericium coralloides"},
-    {common:"Chestnut",             sci:"Pholiota adiposa"},
-    {common:"Golden Enoki",         sci:"Flammulina velutipes"},
-    {common:"Maitake",              sci:"Grifola frondosa"},
-    {common:"Shiitake",             sci:"Lentinula edodes"},
-    {common:"Reishi",               sci:"Ganoderma lucidum"},
-    {common:"Turkey Tail",          sci:"Trametes versicolor"},
-  ];
   // merge with any species already used in batches/costs
   const usedSpecies=[...new Set([...batches.map(x=>x.species),...costs.map(x=>x.species)].filter(Boolean))];
-  const allSpecies=[...KNOWN_SPECIES.map(s=>s.common), ...usedSpecies.filter(u=>!KNOWN_SPECIES.find(k=>k.common.toLowerCase()===u.toLowerCase()))];
+  const allSpecies=[...KNOWN_SPECIES.map(s=>s.common), ...usedSpecies.filter(u=>!KNOWN_SPECIES.find(k=>normSpecies(k.common)===normSpecies(u)))];
   $("speciesList").innerHTML=[...new Set(allSpecies)].map(s=>`<option value="${esc(s)}">`).join("");
   // auto-fill scientific name when species is picked
+  // (this replaces the input's inline oninput, so it calls checkSecondGen too)
   $("f_species").oninput=function(){
-    const match=KNOWN_SPECIES.find(k=>k.common.toLowerCase()===this.value.toLowerCase().trim());
+    const match=KNOWN_SPECIES.find(k=>normSpecies(k.common)===normSpecies(this.value));
     if(match && !$("f_sci").value) $("f_sci").value=match.sci;
+    checkSecondGen();
   };
+  $("f_species").onchange=function(){ this.value=canonicalSpecies(this.value); checkSecondGen(); };
   const subs=[...new Set(batches.map(x=>x.substrate).filter(Boolean))];
   $("subList").innerHTML=subs.map(s=>`<option value="${esc(s)}">`).join("");
   showView("form");
@@ -1941,6 +1927,39 @@ function normSpawnCode(code){
   return c.startsWith("la")?c.slice(2):c;
 }
 const normSpecies = s => (s||"").toLowerCase().replace(/[^a-z]/g,"");
+// canonical species list with botanicals — shown as suggestions in the dropdown
+const KNOWN_SPECIES = [
+  {common:"Snow White Oyster",    sci:"Pleurotus ostreatus"},
+  {common:"Warm White Oyster",    sci:"Pleurotus ostreatus"},
+  {common:"Blue Oyster",          sci:"Pleurotus ostreatus"},
+  {common:"Chocolate Oyster",     sci:"Pleurotus ostreatus"},
+  {common:"Pink Oyster",          sci:"Pleurotus djamor"},
+  {common:"Black-Pearl King Oyster", sci:"Pleurotus eryngii"},
+  {common:"Lion's Mane",          sci:"Hericium erinaceus"},
+  {common:"Coral Tooth",          sci:"Hericium coralloides"},
+  {common:"Chestnut",             sci:"Pholiota adiposa"},
+  {common:"Golden Enoki",         sci:"Flammulina velutipes"},
+  {common:"Maitake",              sci:"Grifola frondosa"},
+  {common:"Shiitake",             sci:"Lentinula edodes"},
+  {common:"Reishi",               sci:"Ganoderma lucidum"},
+  {common:"Turkey Tail",          sci:"Trametes versicolor"},
+];
+// Snap a typed species onto the spelling already in use, ignoring case,
+// spaces and punctuation - "lions mane" -> "Lion's Mane". A typo used to
+// create a separate species (2026-10-31: 4 batches saved as "Lions Mane"
+// were invisible to MAVIS's yield forecast, ~15 kg missing). Known list
+// first, then the spelling most batches already use. Anything genuinely
+// new is kept as typed.
+function canonicalSpecies(typed){
+  const t=(typed||"").trim(), n=normSpecies(t);
+  if(!n) return t;
+  const known=KNOWN_SPECIES.find(k=>normSpecies(k.common)===n);
+  if(known) return known.common;
+  const counts={};
+  batches.forEach(b=>{ if(b.species && normSpecies(b.species)===n) counts[b.species]=(counts[b.species]||0)+1; });
+  const used=Object.keys(counts).sort((a,b)=>counts[b]-counts[a])[0];
+  return used||t;
+}
 function isSecondGenBatch(b){ return GRAIN_RE.test(b.substrate||""); }
 function secondGenCandidates(species, code){
   const sp=normSpecies(species), nc=normSpawnCode(code);
@@ -1992,7 +2011,7 @@ function secondGenToTake(){
 }
 
 async function saveBatch(){
-  const name=$("f_name").value.trim(), species=$("f_species").value.trim();
+  const name=$("f_name").value.trim(), species=canonicalSpecies($("f_species").value);
   const lines=blockLineState.map(l=>({count:parseInt(l.count,10)||0,kg:parseFloat(l.kg)||0})).filter(l=>l.count>0);
   const blocks=lines.reduce((s,l)=>s+l.count,0);
   if(!name||!species){ alert("Batch name and species are required."); return; }
