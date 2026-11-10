@@ -1490,6 +1490,17 @@ async function setReadyDate(id){
 async function clearReadyDate(id){
   await write(db.from("mn_batches").update({ready_date:null}).eq("id",id),"Couldn't clear ready-to-fruit date");
 }
+// 2026-11-10 (Adam's ask): moving blocks out of incubation (into fruiting or
+// packed) is the natural moment to record the batch's "ready to fruit" date,
+// so ask then instead of relying on remembering to mark it separately. Only
+// asked when the batch has no ready date yet; "no" changes nothing. Runs
+// after the move itself has saved, so cancelling never blocks the move.
+async function askWholeBatchReady(batchId, date){
+  const b=batches.find(x=>x.id===batchId);
+  if(!b || b.ready_date) return;
+  if(!confirm(`Is the whole batch ready to fruit?\n\n"${b.name}" (#${b.batch_no}) - tapping OK marks it ready to fruit as of ${fmtDate(date)}.`)) return;
+  await write(db.from("mn_batches").update({ready_date:date}).eq("id",batchId),"Couldn't save ready-to-fruit date");
+}
 
 /* ================= ROUTING ================= */
 function showView(name, push=true){
@@ -2144,7 +2155,11 @@ async function saveMove(){
   const note=$("mv_note").value.trim()||null;
   const payload=rows.map(r=>({batch_id:modalBatchId, move_date:$("mv_date").value||todayISO(), from_state:from, to_state:to, count:r.count, kg:r.kg, note}));
   const ok=await write(db.from("mn_movements").insert(payload),"Couldn't save movement");
-  if(ok){ closeModal("moveModal"); renderBatch(); }
+  if(ok){
+    closeModal("moveModal");
+    if(from==="incubating" && (to==="fruiting"||to==="packed")) await askWholeBatchReady(modalBatchId, payload[0].move_date);
+    renderBatch();
+  }
 }
 
 let harvestSlot=null, editingHarvestId=null, harvestSaving=false;
@@ -2657,6 +2672,7 @@ async function confirmPlace(){
     await loadAll();
     setSync("ok","Synced");
     renderRoom();
+    if(movRows.length>0){ await askWholeBatchReady(placeBatchId, movRows[0].move_date); renderRoom(); }
   }catch(e){ console.error(e); setSync("bad","Save failed"); alert("Couldn't place blocks - nothing was saved, please try again.\n\n"+e.message); }
 }
 async function placeBlock(bayId,code,letter,n){
